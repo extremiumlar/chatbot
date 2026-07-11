@@ -1,0 +1,19 @@
+# --- Core (LLM provayderlar) ---
+google-genai>=1.0.0          # Google Gemini API (asosiy bot javoblari)
+anthropic>=0.40.0            # Claude API (muqobil provayder + ingest)
+python-dotenv>=1.0.1         # .env dan API kalitlarni o'qish
+
+# --- PDF / matn o'qish ---
+pdfplumber>=0.11.4           # PDF dan matn va jadval ajratish (asosiy)
+pypdf>=5.1.0                 # zaxira PDF o'qigich
+
+# --- RAG / vektor baza ---
+chromadb>=0.5.20             # vektor baza (semantik qidiruv)
+sentence-transformers>=3.3.0 # ko'p tilli embedding modeli (o'zbek/rus/ingliz)
+
+# --- Telegram ---
+telethon>=1.44.0            # Telegram AKKAUNT (userbot) — akkaunt orqali javob berish
+python-telegram-bot>=21.9   # (ixtiyoriy) BotFather bot API varianti uchun
+
+# --- Yordamchi ---
+tqdm>=4.67.0                # progress bar (katta PDF uchun)

@@ -1,0 +1,26 @@
+# Maxfiy kalitlar
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Baza va saqlash (fayllar katta bo'ladi, git ga kirmasin)
+storage/
+data/raw/*
+!data/raw/.gitkeep
+
+# Katta / nozik fayllar (PII bo'lgan shartnomalar, master-reja PDF, loglar)
+*.pdf
+*.log
+.claude/settings.local.json
+
+# Xom manba (operator raqamlari + ichki eslatmalar) — public repoga kirmasin.
+# Bot buni ishlatmaydi (toza bilim knowledge_base/ da).
+uy datalari.txt
+
+# OS
+Thumbs.db
+.DS_Store
