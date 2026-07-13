@@ -101,8 +101,9 @@ MODEL_TEMPERATURE = float(os.getenv("MODEL_TEMPERATURE", "0.3"))
 RAG_ENABLED = os.getenv("RAG_ENABLED", "1") == "1"
 # Har savolda vektor bazadan olinadigan mos bo'laklar soni:
 RAG_TOP_K = int(os.getenv("RAG_TOP_K", "5"))
-# Shu o'xshashlik chegarasidan pastdagi bo'laklar tashlanadi (0..1, cosine o'xshashlik).
-# 0.45 — o'zbekcha ko'p tilli embeddingda kuchsiz/noaniq mosliklarni kesish uchun:
+# Shu chegaradan pastdagi bo'laklar tashlanadi. Ball — GIBRID yakuniy ball
+# (vektor*RAG_VECTOR_WEIGHT + kalit_so'z*(1-W)). e5+gibrid kalibrlash (tests/rag_eval.py):
+# to'g'ri javoblarning eng pasti ~0.46 — shuning uchun 0.45 (to'g'rilar o'tadi):
 RAG_MIN_SCORE = float(os.getenv("RAG_MIN_SCORE", "0.45"))
 # Gibrid qidiruvda VEKTOR ballning ulushi (qolgani kalit-so'z balli, 0..1):
 RAG_VECTOR_WEIGHT = float(os.getenv("RAG_VECTOR_WEIGHT", "0.6"))

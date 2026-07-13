@@ -111,15 +111,44 @@ def _understand(doc_id: int, pages: list[str]) -> None:
     print(f"  🧠 {n_facts} fakt, {n_props} uy/ob'ekt ajratildi.")
 
 
+def rebuild_vectors() -> None:
+    """Chroma indeksini SQLite'dagi chunks'dan QAYTA quradi (hujjatlarni qayta o'qimasdan).
+    Embedding modeli almashganda kerak (config.EMBED_MODEL / EMBED_MODEL env)."""
+    chunks = db.get_all_chunks()
+    if not chunks:
+        print("SQLite'da bo'lak yo'q — qayta quradigan narsa yo'q.")
+        return
+    print(f"Chroma indeksi '{config.EMBED_MODEL}' bilan qayta qurilmoqda "
+          f"({len(chunks)} bo'lak)...")
+    vectorstore.reset_collection()
+    B = 128
+    for i in tqdm(range(0, len(chunks), B), desc="  embedding", unit="batch"):
+        batch = chunks[i:i + B]
+        vectorstore.add_chunks(
+            [c["id"] for c in batch],
+            [c["text"] for c in batch],
+            [{"document_id": c["document_id"], "filename": c["filename"],
+              "page": c["page"], "chunk_index": c["chunk_index"]} for c in batch],
+        )
+    print(f"✅ Tayyor: {vectorstore.count()} bo'lak yangi model bilan indekslandi.")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="RAG bazasini quradi (PDF/txt -> baza)")
     parser.add_argument("path", nargs="?", default=str(config.RAW_DIR),
                         help="Fayl yoki papka yo'li (default: data/raw/)")
     parser.add_argument("--no-ai", action="store_true",
                         help="Claude tahlilisiz, faqat qidiruv indeksini quradi")
+    parser.add_argument("--rebuild", action="store_true",
+                        help="Chroma indeksini SQLite chunks'dan qayta quradi "
+                             "(embedding modeli almashganda)")
     args = parser.parse_args()
 
     db.init_db()
+
+    if args.rebuild:
+        rebuild_vectors()
+        return
     target = Path(args.path)
 
     if target.is_dir():

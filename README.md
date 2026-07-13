@@ -11,8 +11,12 @@ yangi lidlarni bazaga yozadi.
    to'liq beriladi). Bu asosiy manba.
 2. **Jonli inventar** — `uysot/showroom.py` orqali Uysot showroom API dan real
    vaqtda: qaysi blokda qanday xonadon sotuvda, m² narxi, bandlik. (~10 daq keshlanadi.)
-3. **RAG (ingest qilingan hujjatlar)** — `ingest.py` bilan yuklangan PDF/txt fayllar
-   (semantik qidiruv + Claude ajratgan faktlar). Savolga mos qismlar promptga qo'shiladi.
+3. **RAG (ingest qilingan hujjatlar)** — `ingest.py` bilan yuklangan PDF/txt fayllar.
+   Qidiruv **gibrid**: `intfloat/multilingual-e5-base` embedding (query:/passage:
+   prefikslari avtomatik) + o'zbekcha kalit-so'z/sinonim qatlami (`knowledge/hybrid.py`,
+   `knowledge/uz_synonyms.py`). Sifat o'lchovi: `python tests/rag_eval.py --hybrid`
+   (oltin to'plamda 97% top-1). Embedding modelini almashtirsangiz indeksni qayta
+   quring: `python ingest.py --rebuild`.
    > ⚠️ Bu yerga faqat **umumiy** hujjatlar ingest qiling (narx, shartnoma shartlari,
    > hudud). Aynan bir mijozning shaxsiy shartnomasini ingest qilmang — shaxsiy
    > ma'lumot javobga chiqib ketishi mumkin.

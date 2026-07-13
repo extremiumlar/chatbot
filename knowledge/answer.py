@@ -89,12 +89,14 @@ def _rag_context_block(question: str) -> str:
     except Exception:  # noqa: BLE001
         log.warning("RAG faktlarni o'qishda xato", exc_info=True)
 
-    # 2) Semantik qidiruv — savolga eng mos hujjat bo'laklari.
-    # has_data() embedding modelini yuklamaydi; ma'lumot bo'lsagina search() (torch) chaqiriladi.
+    # 2) Gibrid qidiruv (vektor + kalit so'z) — savolga eng mos hujjat bo'laklari.
+    # has_data() embedding modelini yuklamaydi; ma'lumot bo'lsagina qidiruv (torch) ishlaydi.
+    # RAG_MIN_SCORE gibrid YAKUNIY ballga qo'llanadi (vektor*W + kalit_so'z*(1-W)).
     try:
         from knowledge import vectorstore
         if vectorstore.has_data():
-            hits = vectorstore.search(question, top_k=config.RAG_TOP_K)
+            from knowledge import hybrid
+            hits = hybrid.hybrid_search(question, top_k=config.RAG_TOP_K)
             good = [h for h in hits if h.get("score", 0) >= config.RAG_MIN_SCORE]
             if good:
                 snips = [h["text"].strip() for h in good]

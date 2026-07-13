@@ -165,6 +165,17 @@ def add_chunk(document_id: int, chunk_index: int, text: str,
         return cur.lastrowid
 
 
+def get_all_chunks() -> list[sqlite3.Row]:
+    """Barcha bo'laklar (id, text, page, chunk_index, document_id, filename) —
+    Chroma indeksini qayta qurish (ingest.py --rebuild) uchun."""
+    with connect() as conn:
+        return conn.execute(
+            """SELECT c.id, c.text, c.page, c.chunk_index, c.document_id, d.filename
+               FROM chunks c JOIN documents d ON d.id = c.document_id
+               ORDER BY c.id"""
+        ).fetchall()
+
+
 def get_chunk_texts(chunk_ids: list[int]) -> dict[int, sqlite3.Row]:
     """Chroma qaytargan chunk id lar bo'yicha to'liq matn va meta ma'lumotni oladi."""
     if not chunk_ids:

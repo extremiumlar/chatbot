@@ -46,10 +46,13 @@ def _expansions(token: str) -> list[str]:
 
 def _token_in_text(token: str, text: str) -> bool:
     """Token matnda bormi — to'liq yoki o'zak (prefiks) ko'rinishida.
-    O'zbek qo'shimchali til: "chidaydimi" -> "chida" o'zagi "chidamli" ni topadi."""
+    O'zbek qo'shimchali til uchun yengil "stemming": uzun tokenning birinchi 6 belgisi
+    ham tekshiriladi ("zilzilaga" -> "zilzil" ni "zilzilaga chidamli"da topadi).
+    5 belgili prefiks juda qisqa — "joylashgan"[:5]="joyla" parkovkadagi "joylari"ga
+    yolg'on moslashardi; shuning uchun kamida 6."""
     if token in text:
         return True
-    if len(token) >= 6 and token[:5] in text:   # yengil "stemming" (prefiks)
+    if len(token) >= 7 and token[:6] in text:   # yengil "stemming" (prefiks)
         return True
     return False
 
