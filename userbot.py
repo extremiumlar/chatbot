@@ -30,6 +30,8 @@ import logging
 import re
 import time
 from collections import deque
+from datetime import datetime, timedelta, timezone
+from logging.handlers import RotatingFileHandler
 
 from telethon import TelegramClient, events
 from telethon.tl.types import User
@@ -38,10 +40,22 @@ import config
 from knowledge import answer, db
 from uysot import showroom
 
+# Loglar konsolga HAM faylga yoziladi (storage/userbot.log, 2MB dan aylanadi) —
+# konsol oynasi yopilsa ham "nega javob bermadi?" ni keyin tekshirish mumkin.
 logging.basicConfig(
-    format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    level=logging.INFO,
+    handlers=[
+        logging.StreamHandler(),
+        RotatingFileHandler(config.STORAGE_DIR / "userbot.log",
+                            maxBytes=2_000_000, backupCount=3, encoding="utf-8"),
+    ],
 )
 log = logging.getLogger("userbot")
+
+# Jarayon boshlangan payt (UTC) — catch-up qayta o'ynatgan ESKI chiquvchi xabarlarni
+# jonli menejer xabaridan ajratish uchun (pastda _handle_outgoing ga qarang).
+_STARTED_AT = datetime.now(timezone.utc)
 
 # Har foydalanuvchi uchun suhbat tarixi (RAM kesh; doimiy nusxa DB dagi messages jadvalida)
 _history: dict[int, list[dict]] = {}
@@ -202,6 +216,16 @@ def _layout_line(g: dict) -> str:
             f"({', '.join(g['blocks'])}-bloklar)")
 
 
+def _save_exchange(uid: int, user_text: str, bot_text: str) -> None:
+    """Suhbat juftligini bazaga yozadi (diagnostika: bot NIMA deb javob berganini
+    keyin DB dan ko'rish mumkin — konsol yopilgan bo'lsa ham)."""
+    try:
+        db.add_message(uid, "user", user_text)
+        db.add_message(uid, "assistant", bot_text)
+    except Exception:  # noqa: BLE001
+        log.warning("Suhbatni saqlashda xato", exc_info=True)
+
+
 async def _handle_plan_request(event: events.NewMessage.Event, chat_id: int,
                                uid: int, text: str) -> None:
     """Planirovka so'rovi: mos turdagi PDF(lar)ni yuboradi yoki qaysi turini so'raydi."""
@@ -213,9 +237,10 @@ async def _handle_plan_request(event: events.NewMessage.Event, chat_id: int,
         layouts = []
 
     if not layouts:
-        await _send(event, chat_id,
-                    "Kechirasiz, planirovkalarni hozir yuklab bo'lmadi 🙏 Telefon "
-                    "raqamingizni qoldiring — menejerimiz planirovkani yuboradi.")
+        reply = ("Kechirasiz, planirovkalarni hozir yuklab bo'lmadi 🙏 Telefon "
+                 "raqamingizni qoldiring — menejerimiz planirovkani yuboradi.")
+        await _send(event, chat_id, reply)
+        _save_exchange(uid, text, reply)
         return
 
     rooms = _wanted_rooms(text)
@@ -225,9 +250,10 @@ async def _handle_plan_request(event: events.NewMessage.Event, chat_id: int,
     # So'ralgan xona turi yo'q
     if rooms is not None and not chosen:
         avail = ", ".join(sorted({str(g["rooms"]) for g in layouts}))
-        await _send(event, chat_id,
-                    f"Hozircha {rooms} xonali xonadon sotuvda yo'q. Mavjud turlar: "
-                    f"{avail} xonali. Qaysi birining planirovkasini yuboray?")
+        reply = (f"Hozircha {rooms} xonali xonadon sotuvda yo'q. Mavjud turlar: "
+                 f"{avail} xonali. Qaysi birining planirovkasini yuboray?")
+        await _send(event, chat_id, reply)
+        _save_exchange(uid, text, reply)
         return
 
     # Xona turi aytilmagan va bir nechta variant bor — ortiqcha PDF yubormay, so'raymiz
@@ -236,7 +262,9 @@ async def _handle_plan_request(event: events.NewMessage.Event, chat_id: int,
         lines += [_layout_line(g) for g in chosen]
         lines.append("\nQaysi birining planirovkasini yuboray? "
                      'Masalan: "3 xonali planirovka".')
-        await _send(event, chat_id, "\n".join(lines))
+        reply = "\n".join(lines)
+        await _send(event, chat_id, reply)
+        _save_exchange(uid, text, reply)
         return
 
     # PDF(lar)ni yuboramiz (har turdan bitta namuna)
@@ -273,9 +301,10 @@ async def _handle_plan_request(event: events.NewMessage.Event, chat_id: int,
         except Exception:  # noqa: BLE001
             log.warning("Tarixni saqlashda xato", exc_info=True)
     else:
-        await _send(event, chat_id,
-                    "Kechirasiz, planirovkani yuborib bo'lmadi 🙏 Telefon raqamingizni "
-                    "qoldiring — menejerimiz yuboradi.")
+        reply = ("Kechirasiz, planirovkani yuborib bo'lmadi 🙏 Telefon raqamingizni "
+                 "qoldiring — menejerimiz yuboradi.")
+        await _send(event, chat_id, reply)
+        _save_exchange(uid, text, reply)
 
 
 def _prune() -> None:
@@ -337,11 +366,12 @@ async def _handle_incoming(event: events.NewMessage.Event) -> None:
                 reply = await loop.run_in_executor(None, answer.answer, text, list(history))
         except Exception:  # noqa: BLE001
             log.exception("Javob xatosi")
+            fallback = ("Kechirasiz, hozir kichik texnik nosozlik bo'ldi 🙏 Biroz o'tib "
+                        "qayta yozing yoki telefon raqamingizni qoldiring — "
+                        "mutaxassisimiz siz bilan bog'lanadi.")
             try:  # jim qolmaymiz — mijozga yumshoq xabar
-                await _send(event, chat_id,
-                            "Kechirasiz, hozir kichik texnik nosozlik bo'ldi 🙏 Biroz o'tib "
-                            "qayta yozing yoki telefon raqamingizni qoldiring — "
-                            "mutaxassisimiz siz bilan bog'lanadi.")
+                await _send(event, chat_id, fallback)
+                _save_exchange(sender.id, text, "[XATOLIK fallback] " + fallback)
             except Exception:  # noqa: BLE001
                 log.exception("Fallback yuborishda ham xato")
             return
@@ -366,6 +396,14 @@ async def _handle_outgoing(event: events.NewMessage.Event) -> None:
     yozdi, degani; o'sha suhbatda avtomatik javobni bir muddat to'xtatamiz."""
     if not event.is_private:
         return
+    # MUHIM: catch_up=True bot qayta ulanganda O'ZINING eski yuborilgan javoblarini ham
+    # qayta o'ynatadi. Yangi jarayonda _pending_bot_texts bo'sh — ular "menejer yozdi"
+    # deb xato tasniflanib, o'sha chatlar 30 daqiqaga jimib qolardi (bug: restartdan
+    # keyin ba'zi mijozlarga javob bermay qo'yish). Shu sabab jarayon boshlanishidan
+    # OLDINGI chiquvchi xabarlarni umuman e'tiborsiz qoldiramiz:
+    msg_date = getattr(event.message, "date", None)
+    if msg_date and msg_date < _STARTED_AT - timedelta(seconds=15):
+        return
     chat_id = event.chat_id
     raw = event.raw_text or ""
     dq = _pending_bot_texts.get(chat_id)
@@ -379,8 +417,8 @@ async def _handle_outgoing(event: events.NewMessage.Event) -> None:
                 return  # bizning avtomatik javobimiz — menejer aralashuvi emas
     pause_sec = config.HUMAN_TAKEOVER_MINUTES * 60
     _paused_until[chat_id] = time.monotonic() + pause_sec
-    log.info("Chat %s: menejer qo'lda yozdi -> %d daqiqa avtomatik javob to'xtatildi.",
-             chat_id, config.HUMAN_TAKEOVER_MINUTES)
+    log.info("Chat %s: menejer qo'lda yozdi ('%.40s') -> %d daqiqa avtomatik javob "
+             "to'xtatildi.", chat_id, raw, config.HUMAN_TAKEOVER_MINUTES)
 
 
 _lock_socket = None
