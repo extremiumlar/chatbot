@@ -104,11 +104,17 @@ RAG_TOP_K = int(os.getenv("RAG_TOP_K", "5"))
 # Shu o'xshashlik chegarasidan pastdagi bo'laklar tashlanadi (0..1, cosine o'xshashlik).
 # 0.45 — o'zbekcha ko'p tilli embeddingda kuchsiz/noaniq mosliklarni kesish uchun:
 RAG_MIN_SCORE = float(os.getenv("RAG_MIN_SCORE", "0.45"))
+# Gibrid qidiruvda VEKTOR ballning ulushi (qolgani kalit-so'z balli, 0..1):
+RAG_VECTOR_WEIGHT = float(os.getenv("RAG_VECTOR_WEIGHT", "0.6"))
 
 # --- Chunking (bo'laklarga bo'lish) parametrlari ---
 CHUNK_SIZE = 900        # bir bo'lakdagi taxminiy belgilar soni
 CHUNK_OVERLAP = 150     # qo'shni bo'laklar orasidagi ustma-ust qism (kontekst yo'qolmasligi uchun)
 
 # --- Embedding modeli (ko'p tilli: o'zbek/rus/ingliz) ---
-EMBED_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"
+# intfloat/multilingual-e5-base — MiniLM'dan ancha kuchli kross-til qidiruv
+# (oltin-to'plam bahosida MiniLM ~20% top-1 berdi — o'zbekchada yaroqsiz).
+# E5 "query:"/"passage:" prefikslarini talab qiladi — vectorstore.py avtomatik qo'shadi.
+# Model almashtirilsa indeksni qayta qurish shart: python ingest.py --rebuild
+EMBED_MODEL = os.getenv("EMBED_MODEL", "intfloat/multilingual-e5-base")
 COLLECTION_NAME = "knowledge"
