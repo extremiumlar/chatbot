@@ -90,6 +90,16 @@ UYSOT_SHOWROOM_TOKEN = os.getenv("UYSOT_SHOWROOM_TOKEN", "")
 UYSOT_HOUSE_ID = os.getenv("UYSOT_HOUSE_ID", "880")   # Nurli Diyor Residence
 UYSOT_CACHE_TTL = int(os.getenv("UYSOT_CACHE_TTL", "600"))  # inventar keshi (sekund)
 
+# --- Javob generatsiyasi ---
+# Faktik (narx/shart) javoblar uchun past temperatura — kamroq "ijod", ko'proq aniqlik.
+MODEL_TEMPERATURE = float(os.getenv("MODEL_TEMPERATURE", "0.3"))
+
+# --- RAG (semantik qidiruv botga ulanadi) ---
+# Har savolda vektor bazadan olinadigan mos bo'laklar soni:
+RAG_TOP_K = int(os.getenv("RAG_TOP_K", "5"))
+# Shu o'xshashlik chegarasidan pastdagi bo'laklar tashlanadi (0..1, cosine o'xshashlik):
+RAG_MIN_SCORE = float(os.getenv("RAG_MIN_SCORE", "0.30"))
+
 # --- Chunking (bo'laklarga bo'lish) parametrlari ---
 CHUNK_SIZE = 900        # bir bo'lakdagi taxminiy belgilar soni
 CHUNK_OVERLAP = 150     # qo'shni bo'laklar orasidagi ustma-ust qism (kontekst yo'qolmasligi uchun)

@@ -17,10 +17,6 @@ data/raw/*
 *.log
 .claude/settings.local.json
 
-# Xom manba (operator raqamlari + ichki eslatmalar) — public repoga kirmasin.
-# Bot buni ishlatmaydi (toza bilim knowledge_base/ da).
-uy datalari.txt
-
 # OS
 Thumbs.db
 .DS_Store

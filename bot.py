@@ -43,8 +43,20 @@ WELCOME = (
     "mutaxassisimiz siz bilan bog'lanadi. Yoki to'g'ridan-to'g'ri savolingizni yozing. 🏠"
 )
 
-# Har foydalanuvchi uchun suhbat tarixi (oddiy xotira; qayta ishga tushsa tozalanadi)
+import asyncio
+
+# Har foydalanuvchi uchun suhbat tarixi (RAM kesh; doimiy nusxa DB messages jadvalida)
 _history: dict[int, list[dict]] = {}
+# Bir mijozning xabarlari parallel ishlanmasin (kontekst poygasining oldini oladi)
+_locks: dict[int, asyncio.Lock] = {}
+
+
+def _get_lock(uid: int) -> asyncio.Lock:
+    lock = _locks.get(uid)
+    if lock is None:
+        lock = asyncio.Lock()
+        _locks[uid] = lock
+    return lock
 
 
 def _phone_keyboard() -> ReplyKeyboardMarkup:
@@ -84,23 +96,37 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     if not question:
         return
 
-    db.upsert_lead(user.id, name=user.full_name, username=user.username)
-    await context.bot.send_chat_action(update.effective_chat.id, "typing")
+    async with _get_lock(user.id):
+        db.upsert_lead(user.id, name=user.full_name, username=user.username)
+        await context.bot.send_chat_action(update.effective_chat.id, "typing")
 
-    history = _history.get(user.id, [])
-    try:
-        reply = answer.answer(question, history=history)
-    except Exception as e:  # noqa: BLE001
-        log.exception("Javob xatosi")
-        await update.message.reply_text(
-            "Kechirasiz, texnik nosozlik yuz berdi. Biroz o'tib qayta urinib ko'ring "
-            "yoki sotuv bo'limimizga qo'ng'iroq qiling."
-        )
-        return
+        # Kontekst: RAM keshda bo'lmasa DB dan yuklaymiz
+        history = _history.get(user.id)
+        if history is None:
+            try:
+                history = db.get_recent_messages(user.id, limit=8)
+            except Exception:  # noqa: BLE001
+                history = []
+            _history[user.id] = history
 
-    history.append({"role": "user", "content": question})
-    history.append({"role": "assistant", "content": reply})
-    _history[user.id] = history[-8:]
+        try:
+            reply = await asyncio.to_thread(answer.answer, question, list(history))
+        except Exception:  # noqa: BLE001
+            log.exception("Javob xatosi")
+            await update.message.reply_text(
+                "Kechirasiz, texnik nosozlik yuz berdi. Biroz o'tib qayta urinib ko'ring "
+                "yoki sotuv bo'limimizga qo'ng'iroq qiling."
+            )
+            return
+
+        history.append({"role": "user", "content": question})
+        history.append({"role": "assistant", "content": reply})
+        _history[user.id] = history[-8:]
+        try:
+            db.add_message(user.id, "user", question)
+            db.add_message(user.id, "assistant", reply)
+        except Exception:  # noqa: BLE001
+            log.warning("Suhbat tarixini saqlashda xato", exc_info=True)
 
     await update.message.reply_text(reply)
 
@@ -108,7 +134,10 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 def main() -> None:
     if not config.TELEGRAM_BOT_TOKEN:
         raise SystemExit("TELEGRAM_BOT_TOKEN topilmadi. .env fayliga qo'ying (@BotFather).")
-    if not config.ANTHROPIC_API_KEY:
+    # Kalitni tanlangan provayderga qarab tekshiramiz (gemini yoki anthropic)
+    if config.LLM_PROVIDER == "gemini" and not config.GEMINI_API_KEY:
+        raise SystemExit("GEMINI_API_KEY topilmadi. .env fayliga qo'ying.")
+    if config.LLM_PROVIDER == "anthropic" and not config.ANTHROPIC_API_KEY:
         raise SystemExit("ANTHROPIC_API_KEY topilmadi. .env fayliga qo'ying.")
 
     db.init_db()

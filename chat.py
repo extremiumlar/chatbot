@@ -13,7 +13,11 @@ from knowledge import answer
 
 
 def main() -> None:
-    if not config.ANTHROPIC_API_KEY:
+    # Kalitni tanlangan provayderga qarab tekshiramiz
+    if config.LLM_PROVIDER == "gemini" and not config.GEMINI_API_KEY:
+        print("⚠  .env da GEMINI_API_KEY yo'q. Avval kalitni qo'ying.")
+        return
+    if config.LLM_PROVIDER == "anthropic" and not config.ANTHROPIC_API_KEY:
         print("⚠  .env da ANTHROPIC_API_KEY yo'q. Avval kalitni qo'ying.")
         return
 

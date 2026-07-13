@@ -75,17 +75,32 @@ CREATE TABLE IF NOT EXISTS leads (
     num_messages INTEGER DEFAULT 0
 );
 
+-- Suhbat tarixi — bot qayta ishga tushsa ham kontekst yo'qolmasligi uchun doimiy saqlanadi.
+CREATE TABLE IF NOT EXISTS messages (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    telegram_id  INTEGER NOT NULL,
+    role         TEXT NOT NULL,      -- 'user' | 'assistant'
+    content      TEXT NOT NULL,
+    created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_chunks_doc  ON chunks(document_id);
 CREATE INDEX IF NOT EXISTS idx_facts_cat   ON facts(category);
+CREATE INDEX IF NOT EXISTS idx_messages_tg ON messages(telegram_id, id);
 """
 
 
 @contextmanager
 def connect() -> Iterator[sqlite3.Connection]:
-    """Baza ulanishi (foreign key yoqilgan holda)."""
-    conn = sqlite3.connect(config.SQLITE_PATH)
+    """Baza ulanishi (foreign key + WAL yoqilgan holda).
+
+    WAL rejimi va busy_timeout — bir vaqtda bir nechta thread (Telethon executor)
+    yozganda 'database is locked' xatosining oldini oladi."""
+    conn = sqlite3.connect(config.SQLITE_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA busy_timeout = 5000")
     try:
         yield conn
         conn.commit()
@@ -226,6 +241,29 @@ def get_lead(telegram_id: int) -> sqlite3.Row | None:
         return conn.execute(
             "SELECT * FROM leads WHERE telegram_id = ?", (telegram_id,)
         ).fetchone()
+
+
+# --- messages (suhbat tarixi — doimiy) ---
+
+def add_message(telegram_id: int, role: str, content: str) -> None:
+    """Bitta suhbat xabarini saqlaydi (bot qayta ishga tushsa ham kontekst qoladi)."""
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO messages (telegram_id, role, content) VALUES (?, ?, ?)",
+            (telegram_id, role, content),
+        )
+
+
+def get_recent_messages(telegram_id: int, limit: int = 8) -> list[dict]:
+    """Foydalanuvchining oxirgi `limit` ta xabarini tartib bilan qaytaradi
+    ([{"role":..., "content":...}]). answer.answer() kutgan formatda."""
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT role, content FROM messages WHERE telegram_id = ? "
+            "ORDER BY id DESC LIMIT ?",
+            (telegram_id, limit),
+        ).fetchall()
+    return [{"role": r["role"], "content": r["content"]} for r in reversed(rows)]
 
 
 def stats() -> dict:
