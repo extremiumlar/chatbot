@@ -66,6 +66,8 @@ MODEL_CHAT_GEMINI = os.getenv("MODEL_CHAT_GEMINI", "gemini-2.5-flash-lite")
 
 # Kvota (429) tugaganda navbat bilan sinaladigan modellar zanjiri.
 # Har bir modelning ALOHIDA kunlik bepul kvotasi bor — bittasi tugasa keyingisi ishlaydi.
+# TARTIB MUHIM: eng BARQAROR (kam xato beradigan) model birinchi turishi kerak; kvotasi
+# tez tugaydigan yoki sekin modelni zanjir OXIRIGA qo'ying — shunda birinchi urinish tez o'tadi.
 # .env da GEMINI_MODELS="model1,model2,..." bilan o'zgartirish mumkin.
 _gemini_chain = os.getenv(
     "GEMINI_MODELS",
@@ -95,10 +97,13 @@ UYSOT_CACHE_TTL = int(os.getenv("UYSOT_CACHE_TTL", "600"))  # inventar keshi (se
 MODEL_TEMPERATURE = float(os.getenv("MODEL_TEMPERATURE", "0.3"))
 
 # --- RAG (semantik qidiruv botga ulanadi) ---
+# RAG'ni butunlay o'chirish (masalan kichik VPS'da torch yuklanmasin uchun): RAG_ENABLED=0
+RAG_ENABLED = os.getenv("RAG_ENABLED", "1") == "1"
 # Har savolda vektor bazadan olinadigan mos bo'laklar soni:
 RAG_TOP_K = int(os.getenv("RAG_TOP_K", "5"))
-# Shu o'xshashlik chegarasidan pastdagi bo'laklar tashlanadi (0..1, cosine o'xshashlik):
-RAG_MIN_SCORE = float(os.getenv("RAG_MIN_SCORE", "0.30"))
+# Shu o'xshashlik chegarasidan pastdagi bo'laklar tashlanadi (0..1, cosine o'xshashlik).
+# 0.45 — o'zbekcha ko'p tilli embeddingda kuchsiz/noaniq mosliklarni kesish uchun:
+RAG_MIN_SCORE = float(os.getenv("RAG_MIN_SCORE", "0.45"))
 
 # --- Chunking (bo'laklarga bo'lish) parametrlari ---
 CHUNK_SIZE = 900        # bir bo'lakdagi taxminiy belgilar soni

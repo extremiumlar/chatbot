@@ -42,8 +42,14 @@ def chunk_text(text: str,
             buf = f"{buf}\n{para}" if buf else para
         else:
             chunks.append(buf.strip())
-            # overlap: oldingi bo'lakning oxiridan biroz olib, yangi bo'lakka ulaymiz
+            # overlap: oldingi bo'lakning oxiridan biroz olib, yangi bo'lakka ulaymiz.
+            # buf[-overlap:] so'z O'RTASIDAN kesishi mumkin ("...konstruksiyasi" -> "ksiyasi"),
+            # shuning uchun boshidagi chala so'zni (birinchi bo'sh joygacha) tashlaymiz.
             tail = buf[-overlap:] if overlap else ""
+            if tail:
+                m = re.search(r"\s", tail)
+                if m and m.start() < len(tail) - 1:
+                    tail = tail[m.start() + 1:]
             buf = f"{tail}\n{para}".strip()
 
     if buf.strip():

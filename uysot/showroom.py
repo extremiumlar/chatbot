@@ -32,16 +32,46 @@ def _request(method: str, path: str, body: dict | None = None) -> dict:
         return json.loads(resp.read().decode("utf-8"))
 
 
+def _fetch_all_flats(page_size: int = 200, max_pages: int = 5) -> list[dict]:
+    """Barcha sahifalarni yig'adi. API javobida totalPages bo'lsa unga tayanamiz;
+    bo'lmasa to'liq bo'lmagan sahifa kelguncha davom etamiz. Xato bo'lsa — yig'ilgan
+    qismini qaytaramiz (bot yiqilmasin). max_pages — cheksiz siklga qarshi himoya."""
+    all_flats: list[dict] = []
+    page = 1
+    while page <= max_pages:
+        try:
+            res = _request("POST",
+                           f"/block/get-all-flat-by-filter/{config.UYSOT_HOUSE_ID}",
+                           {"page": page, "size": page_size})
+        except Exception as e:  # noqa: BLE001
+            log.warning("Showroom %d-sahifada xato: %s (yig'ilgan %d birlik qaytadi)",
+                        page, e, len(all_flats))
+            break
+        data = res.get("data") or {}
+        batch = data.get("data") or []
+        all_flats.extend(batch)
+
+        total_pages = data.get("totalPages")
+        if total_pages is not None:
+            if page >= total_pages:
+                break
+        elif len(batch) < page_size:   # total yo'q — kam kelsa oxiri
+            break
+        page += 1
+    else:
+        log.warning("Showroom: max_pages (%d) chegarasiga yetildi — inventar to'liq "
+                    "bo'lmasligi mumkin.", max_pages)
+    return all_flats
+
+
 def get_available_flats(force: bool = False) -> list[dict]:
-    """Hozir sotuvdagi (qolgan) barcha xonadonlar ro'yxati (keshlangan)."""
+    """Hozir sotuvdagi (qolgan) barcha xonadonlar ro'yxati (keshlangan, sahifalab yig'iladi)."""
     now = time.time()
     hit = _cache.get("flats")
     if not force and hit and now - hit[0] < config.UYSOT_CACHE_TTL:
         return hit[1]  # type: ignore[return-value]
 
-    res = _request("POST", f"/block/get-all-flat-by-filter/{config.UYSOT_HOUSE_ID}",
-                   {"page": 1, "size": 200})
-    flats = (res.get("data") or {}).get("data") or []
+    flats = _fetch_all_flats()
     _cache["flats"] = (now, flats)
     return flats
 
@@ -119,5 +149,63 @@ def inventory_summary() -> str:
     return "\n".join(lines)
 
 
+def _request_raw(method: str, path: str, body: dict | None = None) -> bytes:
+    """JSON emas, xom baytlar qaytaradigan so'rov (masalan PDF yuklab olish uchun)."""
+    url = f"{config.UYSOT_SHOWROOM_BASE}{path}"
+    data = json.dumps(body).encode("utf-8") if body is not None else None
+    req = urllib.request.Request(url, data=data, method=method)
+    req.add_header("X-Auth", config.UYSOT_SHOWROOM_TOKEN)
+    req.add_header("Content-Type", "application/json")
+    with urllib.request.urlopen(req, timeout=40) as resp:
+        return resp.read()
+
+
+def _has_plan(flat: dict) -> bool:
+    return any(g.get("position") == "FLAT_PLAN" for g in (flat.get("gallery") or []))
+
+
+def list_layouts() -> list[dict]:
+    """Har xil planirovka turlari (xona soni + maydon bo'yicha guruhlangan).
+    Har turdan bitta namuna xonadon (PDF olish uchun) va bloklar ro'yxati qaytadi.
+    [{'rooms', 'area', 'blocks': [...], 'count', 'flat': {...}}]"""
+    flats = [f for f in get_available_flats()
+             if not _is_commercial(f) and _has_plan(f)]
+    groups: dict[tuple, dict] = {}
+    for f in flats:
+        key = (f["rooms"], round(f["area"], 1))
+        g = groups.get(key)
+        if g is None:
+            g = {"rooms": f["rooms"], "area": round(f["area"], 1),
+                 "blocks": set(), "count": 0, "flat": f,
+                 "price_min": f["price"], "price_max": f["price"]}
+            groups[key] = g
+        g["blocks"].add(str(f["block"]))
+        g["count"] += 1
+        g["price_min"] = min(g["price_min"], f["price"])
+        g["price_max"] = max(g["price_max"], f["price"])
+    out = []
+    for key in sorted(groups, key=lambda k: (int(k[0]) if str(k[0]).isdigit() else 99, k[1])):
+        g = groups[key]
+        g["blocks"] = sorted(g["blocks"], key=lambda b: int(b) if b.isdigit() else 99)
+        out.append(g)
+    return out
+
+
+def flat_plan_pdf(flat: dict) -> bytes:
+    """Bitta xonadon uchun shourum PDF (planirovka + narx) baytlarini qaytaradi."""
+    body = {
+        "flatId": flat["id"],
+        "delay": int(flat.get("delay") or 0),
+        "repaired": False,
+        "discount": False,
+        "clientPaymentAmount": float(flat.get("prePayment") or 0),
+    }
+    return _request_raw("POST", "/flat-shourum-pdf", body)
+
+
 if __name__ == "__main__":
     print(inventory_summary())
+    print("\n--- Planirovka turlari ---")
+    for g in list_layouts():
+        print(f"{g['rooms']} xona, {g['area']} m² | bloklar {g['blocks']} | "
+              f"{g['count']} ta | namuna flatId={g['flat']['id']}")

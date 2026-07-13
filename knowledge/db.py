@@ -2,6 +2,12 @@
 
 Chroma (vektor baza) semantik qidiruv uchun; bu yerda esa aniq, tuzilgan
 ma'lumot saqlanadi: qaysi hujjat, qaysi sahifa, qaysi uy, va Claude ajratgan faktlar.
+
+Vaqt belgilari: barcha DEFAULT'lar `datetime('now','localtime')` — lokal vaqt
+(UTC emas). DIQQAT: `CREATE TABLE IF NOT EXISTS` mavjud jadvalni O'ZGARTIRMAYDI —
+eskidan yaratilgan storage/knowledge.db da eski (UTC) DEFAULT'lar joyida qoladi;
+faqat yangi INSERT'lar va upsert_lead lokal vaqt yozadi. To'liq migratsiya uchun
+bazani qaytadan yaratish (yoki ALTER) kerak — bu qabul qilinadigan cheklov.
 """
 from __future__ import annotations
 
@@ -22,7 +28,7 @@ CREATE TABLE IF NOT EXISTS documents (
     num_pages   INTEGER,
     num_chunks  INTEGER DEFAULT 0,
     file_hash   TEXT UNIQUE,                   -- takror yuklashni oldini olish
-    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at  TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
 
 -- Hujjat matnining bo'laklari (RAG uchun). Har bo'lak Chroma da ham embed qilinadi.
@@ -49,7 +55,7 @@ CREATE TABLE IF NOT EXISTS properties (
     build_stage    TEXT,          -- qurilish bosqichi / topshirish sanasi
     status         TEXT,          -- sotuvda | band | sotilgan
     extra          TEXT,          -- qo'shimcha (JSON yoki erkin matn)
-    created_at     TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at     TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
 
 -- Faktlar — Claude PDF/data dan ajratgan aniq "savol-javob"ga yaroqli faktlar.
@@ -60,7 +66,7 @@ CREATE TABLE IF NOT EXISTS facts (
     category    TEXT,             -- narx | qurilish | joylashuv | shartlar | umumiy ...
     question    TEXT,             -- tipik savol ko'rinishi
     answer      TEXT NOT NULL,    -- aniq javob
-    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at  TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
 
 -- Lidlar — botga yozgan mijozlar (sotuv bo'limi keyin bog'lanadi).
@@ -70,8 +76,8 @@ CREATE TABLE IF NOT EXISTS leads (
     name         TEXT,
     username     TEXT,
     phone        TEXT,
-    first_seen   TEXT NOT NULL DEFAULT (datetime('now')),
-    last_seen    TEXT NOT NULL DEFAULT (datetime('now')),
+    first_seen   TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+    last_seen    TEXT NOT NULL DEFAULT (datetime('now','localtime')),
     num_messages INTEGER DEFAULT 0
 );
 
@@ -81,7 +87,7 @@ CREATE TABLE IF NOT EXISTS messages (
     telegram_id  INTEGER NOT NULL,
     role         TEXT NOT NULL,      -- 'user' | 'assistant'
     content      TEXT NOT NULL,
-    created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at   TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_chunks_doc  ON chunks(document_id);
@@ -230,7 +236,7 @@ def upsert_lead(telegram_id: int, name: str | None = None,
                  name = COALESCE(excluded.name, leads.name),
                  username = COALESCE(excluded.username, leads.username),
                  phone = COALESCE(excluded.phone, leads.phone),
-                 last_seen = datetime('now'),
+                 last_seen = datetime('now','localtime'),
                  num_messages = leads.num_messages + 1""",
             (telegram_id, name, username, phone),
         )

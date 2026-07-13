@@ -70,6 +70,8 @@ def _rag_context_block(question: str) -> str:
     DIQQAT: bu yerga faqat UMUMIY hujjatlar (narx, shartnoma shartlari, hudud)
     ingest qilinishi kerak — aynan bir mijozning shaxsiy shartnomasi EMAS, aks holda
     shaxsiy ma'lumot javobga chiqib ketishi mumkin."""
+    if not config.RAG_ENABLED:
+        return ""
     parts: list[str] = []
 
     # 1) Faktlar — kichik, hammasini qo'shamiz (Claude ajratgan aniq savol-javoblar)
@@ -87,10 +89,11 @@ def _rag_context_block(question: str) -> str:
     except Exception:  # noqa: BLE001
         log.warning("RAG faktlarni o'qishda xato", exc_info=True)
 
-    # 2) Semantik qidiruv — savolga eng mos hujjat bo'laklari
+    # 2) Semantik qidiruv — savolga eng mos hujjat bo'laklari.
+    # has_data() embedding modelini yuklamaydi; ma'lumot bo'lsagina search() (torch) chaqiriladi.
     try:
         from knowledge import vectorstore
-        if vectorstore.count() > 0:
+        if vectorstore.has_data():
             hits = vectorstore.search(question, top_k=config.RAG_TOP_K)
             good = [h for h in hits if h.get("score", 0) >= config.RAG_MIN_SCORE]
             if good:
@@ -119,6 +122,7 @@ QAT'IY MAVZU CHEGARASI (juda muhim)
 Sen FAQAT quyidagi mavzularda gaplashasan:
 - Nuriddin buildings kompaniyasi va Nurli diyor majmuasi
 - xonadonlar, narx, to'lov, muddatli to'lov, chegirma shartlari
+- xonadon planirovkasi / rejasi / chizmasi (tizim planirovkani PDF holida yuboradi)
 - qurilish holati, joylashuv, infratuzilma, materiallar, hujjatlar
 - SHARTNOMA shartlari: kafolat, kechikish/jarima, bekor qilish va pul qaytarish,
   egalik huquqi o'tkazish, maydon o'zgarishi, fors-major va boshqa shartnoma bandlari
@@ -152,12 +156,19 @@ ayt va telefon raqam qoldirishni yoki ofisga tashrifni taklif qil. Umumiy ma'lum
 baribir chiroyli tushuntirib ber.
 3. CHEGIRMANI o'zing hisoblab BERMA va aniq chegirma summasini aytma. Faqat: chegirma \
 boshlang'ich to'lov hajmiga qarab beriladi, aniq hisob ofisda qilinadi, deb ayt.
-4. m² narxini va umumiy narx oralig'ini aytishing mumkin (bilim bazasida bor).
-5. Javoblar O'ZBEK tilida, qisqa, iliq va tushunarli bo'lsin. Sotuvchi kabi ishonarli, \
+4. m² narxi va umumiy narx oralig'ini AYNAN pastdagi JONLI INVENTAR bo'limidagi real \
+raqamlardan ayt (bilim bazasidagi eski oraliqlarni emas). Jonli inventar bo'lmasa — \
+"narxlar 8.5 mln so'm/m² dan boshlanadi" deb umumiy ayt va aniq narx uchun sotuv bo'limiga \
+yo'naltir. Narx aytganingda — bu TAXMINIY (list) narx ekanini eslat va: "ofisga tashrif \
+buyursangiz, kelishib chiroyliroq va arzonroq narx qilib beramiz" deb ayt.
+5. PLANIROVKA: mijoz planirovka / xonadon rejasi / chizmasi / "uy rasmini" so'rasa — RAD ETMA. \
+"Albatta, planirovka yuboraman" deb, qaysi xona turini xohlashini so'ra (masalan 2 yoki 3 xonali). \
+Tizim mos planirovka PDF'ini avtomatik yuboradi (sen rasm yubormaysan, faqat yo'naltirasan).
+6. Javoblar O'ZBEK tilida, qisqa, iliq va tushunarli bo'lsin. Sotuvchi kabi ishonarli, \
 ammo bosim o'tkazmasdan. Ozgina emoji ishlatsang bo'ladi.
-6. "Biz", "bizning majmuamiz" deb — kompaniya vakili sifatida gapir.
-7. O'rinli bo'lganda ofisga tashrif yoki qo'ng'iroqqa, telefon qoldirishga taklif qil.
-8. Salbiy/kamchilik tomonlarni o'zing sanab berma; mavjud afzalliklarga urg'u ber.
+7. "Biz", "bizning majmuamiz" deb — kompaniya vakili sifatida gapir.
+8. O'rinli bo'lganda ofisga tashrif yoki qo'ng'iroqqa, telefon qoldirishga taklif qil.
+9. Salbiy/kamchilik tomonlarni o'zing sanab berma; mavjud afzalliklarga urg'u ber.
 
 ============================
 BILIM BAZASI
@@ -192,13 +203,16 @@ def _answer_gemini(question: str, history: list[dict] | None) -> str:
         contents.append({"role": role, "parts": [{"text": m["content"]}]})
     contents.append({"role": "user", "parts": [{"text": question}]})
 
+    # System prompt (showroom API keshi + RAG qidiruvni o'z ichiga oladi) — QIMMAT.
+    # Uni sikldan OLDIN BIR MARTA quramiz; zanjirda har modelda qayta qurmaymiz.
+    base_cfg = dict(
+        system_instruction=_system_prompt(question),
+        max_output_tokens=1024,
+        temperature=config.MODEL_TEMPERATURE,
+    )
     last_exc: Exception | None = None
     for model in config.GEMINI_MODELS:
-        cfg = dict(
-            system_instruction=_system_prompt(question),
-            max_output_tokens=1024,
-            temperature=config.MODEL_TEMPERATURE,
-        )
+        cfg = dict(base_cfg)
         # "O'ylash" (thinking) faqat 2.5 modellarda qo'llanadi; 2.0 uni qabul qilmaydi.
         if "2.5" in model:
             cfg["thinking_config"] = types.ThinkingConfig(thinking_budget=0)

@@ -25,14 +25,18 @@ Xususiyatlar:
 from __future__ import annotations
 
 import asyncio
+import io
 import logging
+import re
 import time
+from collections import deque
 
 from telethon import TelegramClient, events
 from telethon.tl.types import User
 
 import config
 from knowledge import answer, db
+from uysot import showroom
 
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO
@@ -45,9 +49,11 @@ _history: dict[int, list[dict]] = {}
 _paused_until: dict[int, float] = {}
 # Har mijoz uchun qulf — bir vaqtda uning ikkita xabari parallel ishlanmasin (tarix poygasi)
 _locks: dict[int, asyncio.Lock] = {}
-# chat_id -> bot yuborayotgan (chiquvchi sifatida ko'rinadigan) xabarlar soni.
-# _handle_outgoing shu hisobga qarab "bu bot javobimi yoki menejer qo'ldami" ni ajratadi.
-_pending_bot_sends: dict[int, int] = {}
+# chat_id -> bot yuborayotgan xabarlar MATNI (chiquvchi sifatida ko'rinadi).
+# _handle_outgoing chiquvchi xabar matnini shu ro'yxat bilan solishtiradi: mos kelsa —
+# bu bot javobi; kelmasa — menejer qo'lda yozdi. (Faqat sanoq bilan qilinsa, menejer
+# xabari botning navbatdagi sanog'ini "yeb", noto'g'ri klassifikatsiya bo'lardi.)
+_pending_bot_texts: dict[int, deque[str]] = {}
 # Rate-limit: chat_id -> oxirgi xabarlar vaqtlari (monotonic)
 _msg_times: dict[int, list[float]] = {}
 
@@ -93,7 +99,10 @@ def _load_history(uid: int) -> list[dict]:
 
 
 def _split_message(text: str, limit: int = MAX_TG_LEN) -> list[str]:
-    """Uzun javobni Telegram chegarasiga (4096) sig'adigan bo'laklarga bo'ladi."""
+    """Uzun javobni Telegram chegarasiga (4096) sig'adigan bo'laklarga bo'ladi.
+    Bo'sh/faqat-bo'shliq matn uchun [] qaytaradi (bo'sh xabar yuborilmaydi)."""
+    if not text.strip():
+        return []
     if len(text) <= limit:
         return [text]
     parts, cur = [], ""
@@ -108,19 +117,165 @@ def _split_message(text: str, limit: int = MAX_TG_LEN) -> list[str]:
             cur = line if not cur else f"{cur}\n{line}"
     if cur:
         parts.append(cur)
-    return parts
+    return [p for p in parts if p.strip()]   # bo'sh bo'laklarni chiqarib tashlaymiz
+
+
+def _mark_pending(chat_id: int, text: str) -> None:
+    """Bot yubormoqchi bo'lgan xabar matnini ro'yxatga qo'shadi (chat uchun maks. 10 ta)."""
+    dq = _pending_bot_texts.get(chat_id)
+    if dq is None:
+        dq = deque(maxlen=10)
+        _pending_bot_texts[chat_id] = dq
+    dq.append(text)
+
+
+def _unmark_pending(chat_id: int, text: str) -> None:
+    """Yuborish xato bo'lsa — qo'shilgan matnni ro'yxatdan olib tashlaydi."""
+    dq = _pending_bot_texts.get(chat_id)
+    if dq and text in dq:
+        dq.remove(text)
 
 
 async def _send(event: events.NewMessage.Event, chat_id: int, text: str) -> None:
-    """Javobni yuboradi (kerak bo'lsa bo'lib). Har bo'lakни _pending_bot_sends da belgilaydi,
-    shunda _handle_outgoing uni 'menejer qo'lda yozdi' deb xato hisoblamaydi."""
+    """Javobni yuboradi (kerak bo'lsa bo'lib). Bo'sh matn yuborilmaydi. Har bo'lak matni
+    _pending_bot_texts ga qo'shiladi — _handle_outgoing uni 'menejer' deb hisoblamaydi."""
+    text = (text or "").strip()
+    if not text:
+        log.warning("Chat %s: bo'sh javob — yuborilmadi.", chat_id)
+        return
     for part in _split_message(text):
-        _pending_bot_sends[chat_id] = _pending_bot_sends.get(chat_id, 0) + 1
+        if not part.strip():
+            continue
+        _mark_pending(chat_id, part)
         try:
             await event.reply(part)
         except Exception:
-            _pending_bot_sends[chat_id] = max(0, _pending_bot_sends.get(chat_id, 1) - 1)
+            _unmark_pending(chat_id, part)
             raise
+
+
+async def _send_file(event: events.NewMessage.Event, chat_id: int, data: bytes,
+                     filename: str, caption: str) -> None:
+    """Fayl (masalan planirovka PDF) yuboradi. Chiquvchi hodisa matni = caption bo'lgani
+    uchun caption'ni _pending_bot_texts ga qo'shamiz."""
+    bio = io.BytesIO(data)
+    bio.name = filename
+    _mark_pending(chat_id, caption)
+    try:
+        await event.client.send_file(chat_id, bio, caption=caption, force_document=True)
+    except Exception:
+        _unmark_pending(chat_id, caption)
+        raise
+
+
+# Planirovka (xonadon rejasi) so'rovini aniqlash. "to'lov rejasi/plani" bilan
+# adashmaslik uchun faqat aniq so'zlar (планировка transliteratsiyalari) ishlatiladi.
+_PLAN_WORDS = ("planirovka", "planirofka", "planirov", "planirok", "planlanirovka",
+               "layout", "chizma")
+_PHOTO_WORDS = ("rasm", "surat", "foto", "photo", "fotka")
+_HOME_WORDS = ("uy", "uyni", "uyingiz", "xonadon", "kvartira", "kvartura")
+
+
+def _wants_plan(text: str) -> bool:
+    t = text.lower().replace("'", "").replace("`", "").replace("ʻ", "")
+    if any(w in t for w in _PLAN_WORDS):
+        return True
+    # "uy rasmini ko'rsating" kabi — faqat uy/xonadon bilan birga bo'lsa
+    if any(w in t for w in _PHOTO_WORDS) and any(w in t for w in _HOME_WORDS):
+        return True
+    return False
+
+
+def _wanted_rooms(text: str) -> int | None:
+    """Matndan xona sonini ajratadi ("3 xonali", "2 xona")."""
+    m = re.search(r"(\d)\s*[-\s]?\s*xonal", text.lower())
+    if m:
+        return int(m.group(1))
+    m = re.search(r"(\d)\s*xona", text.lower())
+    if m:
+        return int(m.group(1))
+    return None
+
+
+def _layout_line(g: dict) -> str:
+    return (f"• {g['rooms']} xonali — {g['area']} m² "
+            f"({', '.join(g['blocks'])}-bloklar)")
+
+
+async def _handle_plan_request(event: events.NewMessage.Event, chat_id: int,
+                               uid: int, text: str) -> None:
+    """Planirovka so'rovi: mos turdagi PDF(lar)ni yuboradi yoki qaysi turini so'raydi."""
+    loop = asyncio.get_running_loop()
+    try:
+        layouts = await loop.run_in_executor(None, showroom.list_layouts)
+    except Exception:  # noqa: BLE001
+        log.exception("Planirovka turlarini olishda xato")
+        layouts = []
+
+    if not layouts:
+        await _send(event, chat_id,
+                    "Kechirasiz, planirovkalarni hozir yuklab bo'lmadi 🙏 Telefon "
+                    "raqamingizni qoldiring — menejerimiz planirovkani yuboradi.")
+        return
+
+    rooms = _wanted_rooms(text)
+    # API rooms'ni string qaytaradi ('3'); string bo'yicha solishtiramiz
+    chosen = [g for g in layouts if rooms is None or str(g["rooms"]) == str(rooms)]
+
+    # So'ralgan xona turi yo'q
+    if rooms is not None and not chosen:
+        avail = ", ".join(sorted({str(g["rooms"]) for g in layouts}))
+        await _send(event, chat_id,
+                    f"Hozircha {rooms} xonali xonadon sotuvda yo'q. Mavjud turlar: "
+                    f"{avail} xonali. Qaysi birining planirovkasini yuboray?")
+        return
+
+    # Xona turi aytilmagan va bir nechta variant bor — ortiqcha PDF yubormay, so'raymiz
+    if rooms is None and len(chosen) > 1:
+        lines = ["Bizda hozir quyidagi xonadon turlari (planirovkalar) bor 👇"]
+        lines += [_layout_line(g) for g in chosen]
+        lines.append("\nQaysi birining planirovkasini yuboray? "
+                     'Masalan: "3 xonali planirovka".')
+        await _send(event, chat_id, "\n".join(lines))
+        return
+
+    # PDF(lar)ni yuboramiz (har turdan bitta namuna)
+    sent_any = False
+    for g in chosen:
+        try:
+            pdf = await loop.run_in_executor(None, showroom.flat_plan_pdf, g["flat"])
+        except Exception:  # noqa: BLE001
+            log.exception("Planirovka PDF olishda xato (flatId=%s)", g["flat"].get("id"))
+            continue
+        pmin = int(g.get("price_min", g["flat"]["price"]) // 1_000_000)
+        pmax = int(g.get("price_max", g["flat"]["price"]) // 1_000_000)
+        narx = f"{pmin} mln" if pmin == pmax else f"{pmin}–{pmax} mln"
+        caption = (
+            f"{g['rooms']} xonali — {g['area']} m² planirovka 📐\n"
+            f"Bloklar: {', '.join(g['blocks'])} | narx taxminan {narx} so'mdan.\n"
+            "Bu — taxminiy narx. Ofisga tashrif buyursangiz, kelishib chiroyliroq va "
+            "arzonroq narx qilib beramiz 😊"
+        )
+        try:
+            await _send_file(event, chat_id, pdf,
+                             f"planirovka_{g['rooms']}xona_{g['area']:g}m2.pdf", caption)
+            sent_any = True
+        except Exception:  # noqa: BLE001
+            log.exception("Planirovka faylini yuborishda xato")
+
+    if sent_any:
+        await _send(event, chat_id,
+                    "Yana savol bo'lsa yozing, yoki telefon raqamingizni qoldiring — "
+                    "menejerimiz siz bilan bog'lanadi. 🏠")
+        try:
+            db.add_message(uid, "user", text)
+            db.add_message(uid, "assistant", "[planirovka PDF yuborildi]")
+        except Exception:  # noqa: BLE001
+            log.warning("Tarixni saqlashda xato", exc_info=True)
+    else:
+        await _send(event, chat_id,
+                    "Kechirasiz, planirovkani yuborib bo'lmadi 🙏 Telefon raqamingizni "
+                    "qoldiring — menejerimiz yuboradi.")
 
 
 def _prune() -> None:
@@ -131,8 +286,11 @@ def _prune() -> None:
         _paused_until.pop(cid, None)
     for cid in [c for c, t in _msg_times.items() if not t or now - t[-1] > RATE_WINDOW]:
         _msg_times.pop(cid, None)
+    # Bo'shab qolgan kutilayotgan-matn ro'yxatlarini olib tashlaymiz
+    for cid in [c for c, dq in _pending_bot_texts.items() if not dq]:
+        _pending_bot_texts.pop(cid, None)
     # Kuzatiladigan foydalanuvchilar sonini cheklaymiz (eng eski qo'shilganini chiqaramiz)
-    for d in (_history, _locks):
+    for d in (_history, _locks, _pending_bot_texts):
         while len(d) > MAX_TRACKED_USERS:
             d.pop(next(iter(d)))
 
@@ -164,6 +322,13 @@ async def _handle_incoming(event: events.NewMessage.Event) -> None:
 
         db.upsert_lead(sender.id, name=_full_name(sender), username=sender.username)
         log.info("Mijoz %s (%s): %s", _full_name(sender), sender.id, text[:80])
+
+        # Planirovka so'rovi bo'lsa — LLM emas, to'g'ridan-to'g'ri PDF yuboramiz
+        if _wants_plan(text):
+            async with event.client.action(chat_id, "document"):
+                await _handle_plan_request(event, chat_id, sender.id, text)
+            _prune()
+            return
 
         history = _load_history(sender.id)
         try:
@@ -202,10 +367,16 @@ async def _handle_outgoing(event: events.NewMessage.Event) -> None:
     if not event.is_private:
         return
     chat_id = event.chat_id
-    pending = _pending_bot_sends.get(chat_id, 0)
-    if pending > 0:
-        _pending_bot_sends[chat_id] = pending - 1
-        return  # bu bizning avtomatik javobimiz — menejer aralashuvi emas
+    raw = event.raw_text or ""
+    dq = _pending_bot_texts.get(chat_id)
+    # Chiquvchi xabar matni bot yuborgan matnlardan biriga mos kelsa — bu bot javobi.
+    # (Bir xil matnli ikki xabar — bot va menejer aynan bir xil yozsa — nazariy chekka
+    #  holat; bu murosani qabul qilamiz, sanoqqa qaraganda ancha ishonchli.)
+    if dq:
+        for candidate in (raw, raw.strip()):
+            if candidate in dq:
+                dq.remove(candidate)
+                return  # bizning avtomatik javobimiz — menejer aralashuvi emas
     pause_sec = config.HUMAN_TAKEOVER_MINUTES * 60
     _paused_until[chat_id] = time.monotonic() + pause_sec
     log.info("Chat %s: menejer qo'lda yozdi -> %d daqiqa avtomatik javob to'xtatildi.",

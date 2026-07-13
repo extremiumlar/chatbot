@@ -39,8 +39,10 @@ Ma'lumot bu yerda bo'lmasa — bot o'ylab topmaydi, "sotuv bo'limimiz aniq aytad
 
 ## 4. Narx va to'lov
 
-- **1 m² narxi: taxminan 8.5–9 mln so'm.**
-- Xonadon narxi (maydonga qarab): **taxminan 255 mln so'mdan 915 mln so'mgacha.**
+- Narxlar **blok, qavat va maydonga qarab** farqlanadi. Ayni paytdagi **aniq narxlar va
+  bo'sh xonadonlar JONLI INVENTAR bo'limida** — bot o'sha real-vaqt ma'lumotiga tayanadi.
+- **1 m² narxi odatda 8.5 mln so'mdan boshlanadi** (blok/qavatga qarab yuqoriroq bo'lishi mumkin).
+  Aniq m² narxi va umumiy narxni jonli inventardan ayt.
 - **Muddatli to'lov (rassrochka) bor.** Muddat: **24 oydan 60 oygacha.**
 - **Boshlang'ich to'lov: 30 mln so'mdan boshlanadi** (tanlangan xonadon va muddatga qarab o'zgaradi).
 - **Ipoteka yoki bank krediti orqali sotib olish yo'q** — faqat kompaniyaning ichki muddatli to'lovi.

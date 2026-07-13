@@ -66,3 +66,18 @@ def search(query: str, top_k: int = 5) -> list[dict]:
 
 def count() -> int:
     return get_collection().count()
+
+
+def has_data() -> bool:
+    """Bazada ma'lumot bor-yo'qligini EMBEDDING MODELINI YUKLAMASDAN aniqlaydi.
+
+    get_collection() embedding funksiyasini (sentence-transformers + torch, ~400MB)
+    yaratadi — bo'sh Chroma uchun buni bekorga qilmaslik kerak. Shuning uchun bu yerda
+    alohida engil klient ochib, get_collection (get_or_create EMAS — yaratib qo'ymaslik
+    uchun) bilan faqat count() ni o'qiymiz. Kolleksiya yo'q yoki bo'sh bo'lsa — False."""
+    try:
+        client = chromadb.PersistentClient(path=str(config.CHROMA_DIR))
+        col = client.get_collection(name=config.COLLECTION_NAME)
+        return col.count() > 0
+    except Exception:  # noqa: BLE001 - kolleksiya yo'q / baza ochilmadi -> ma'lumot yo'q
+        return False

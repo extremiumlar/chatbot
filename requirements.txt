@@ -13,6 +13,7 @@ sentence-transformers>=3.3.0 # ko'p tilli embedding modeli (o'zbek/rus/ingliz)
 
 # --- Telegram ---
 telethon>=1.44.0            # Telegram AKKAUNT (userbot) — akkaunt orqali javob berish
+cryptg>=0.4                 # Telethon uchun tez AES shifrlash (C, sekin Python fallback o'rniga)
 python-telegram-bot>=21.9   # (ixtiyoriy) BotFather bot API varianti uchun
 
 # --- Yordamchi ---
