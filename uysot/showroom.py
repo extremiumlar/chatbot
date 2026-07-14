@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 import urllib.request
 from collections import defaultdict
@@ -180,8 +181,104 @@ def list_layouts() -> list[dict]:
     return out
 
 
+# --- PDF'dan narxni o'chirish (kompaniya siyosati: bot narx aytmaydi) ---
+# API PDF'ni har doim narx varag'i bilan generatsiya qiladi (buni o'chiradigan
+# parametri yo'q — ShourumPdfRequest tekshirilgan). Shuning uchun narxlarni
+# lokalda CHINAKAM o'chiramiz (redaction): shunchaki ustini yopish emas —
+# matn PDF'dan butunlay olib tashlanadi (nusxalab ham olib bo'lmaydi).
+
+# O'chiriladigan yorliq iboralari (normalizatsiyadan keyin solishtiriladi)
+_PRICE_LABELS = [
+    ("umumiy", "narxi"),
+    ("boshlangich", "tolov"),
+    ("sotuv", "summasi"),
+    ("chegirma", "summasi"),
+    ("oylik", "tolov"),
+    ("foizi",),
+    ("muddat",),   # aynan "muddat" tokeni ("Amal qilish muddati" footeriga tegmaydi)
+]
+
+
+def _norm_token(word: str) -> str:
+    """kichik harf + harf-raqamdan boshqasini olib tashlash: so'm/so`m -> som."""
+    return re.sub(r"[^a-z0-9.%()+]", "", word.lower())
+
+
+def _is_money_token(tok: str) -> bool:
+    return tok.endswith("som") or tok.endswith("%") or tok == "oy"
+
+
+def _find_price_leaks(text: str) -> list[str]:
+    """Matndan narx izlarini qidiradi (tozalash sifatini tekshirish uchun)."""
+    leaks = []
+    for line in text.splitlines():
+        n = re.sub(r"[^a-z0-9.% ]", "", line.lower())
+        if re.search(r"\d{3}", n) and ("som" in n.replace(" ", "") or "%" in n):
+            leaks.append(line.strip())
+        elif any(" ".join(p) in n for p in
+                 (("umumiy", "narxi"), ("boshlangich", "tolov"), ("sotuv", "summasi"),
+                  ("oylik", "tolov"), ("chegirma", "summasi"))):
+            leaks.append(line.strip())
+    return leaks
+
+
+def _strip_prices_from_pdf(pdf_bytes: bytes) -> bytes:
+    """PDF'dagi barcha narx yorliqlari va summalarini o'chiradi.
+
+    Saqlanadi: maydon (m.kv), xona soni, blok/qavat/xonadon raqami, reja rasmi,
+    brend va aloqa ma'lumotlari. O'chadi: umumiy narx, boshlang'ich to'lov, foiz,
+    chegirma, sotuv summasi, muddat, oylik to'lov (yorliqlari bilan birga).
+    Tozalashдан keyin tekshiradi — narx qolgan bo'lsa xato ko'taradi (bunday PDF
+    mijozga KETMAYDI)."""
+    import fitz  # PyMuPDF — faqat shu yerda kerak (import yengil qolsin)
+
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    for page in doc:
+        words = page.get_text("words")  # (x0, y0, x1, y1, matn, block, line, word_no)
+        lines: dict[tuple, list] = {}
+        for w in words:
+            lines.setdefault((w[5], w[6]), []).append(w)
+
+        rects = []
+        for ws in lines.values():
+            ws.sort(key=lambda w: w[7])
+            toks = [_norm_token(w[4]) for w in ws]
+
+            # 1) Yorliqlar — faqat mos so'zlar o'chadi ("Maydoni" yonida tursa ham qoladi)
+            for phrase in _PRICE_LABELS:
+                for i in range(len(toks) - len(phrase) + 1):
+                    if tuple(toks[i:i + len(phrase)]) == phrase:
+                        rects.extend(fitz.Rect(w[:4]) for w in ws[i:i + len(phrase)])
+
+            # 2) Pul qatorlari (ichida so'm/%/oy bor): maydon qismi (m.kv gacha) qoladi,
+            #    qolgan hammasi o'chadi
+            if any(_is_money_token(t) for t in toks):
+                start = 0
+                for i, t in enumerate(toks):
+                    if t in ("m.kv", "mkv", "m.kv."):
+                        start = i + 1
+                rects.extend(fitz.Rect(w[:4]) for w in ws[start:])
+
+        for r in rects:
+            page.add_redact_annot(r)
+        if rects:
+            # rasmlarga tegmaymiz (reja chizmasi saqlanadi)
+            page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE)
+
+    out = doc.tobytes(garbage=3, deflate=True)
+    text_after = "\n".join(p.get_text() for p in doc)
+    doc.close()
+
+    leaks = _find_price_leaks(text_after)
+    if leaks:
+        raise RuntimeError(f"PDF tozalashdan keyin ham narx qoldi: {leaks[:3]}")
+    return out
+
+
 def flat_plan_pdf(flat: dict) -> bytes:
-    """Bitta xonadon uchun shourum PDF (planirovka + narx) baytlarini qaytaradi."""
+    """Bitta xonadon uchun shourum PDF (planirovka) baytlarini qaytaradi.
+    Narx ma'lumotlari yuborishdan oldin PDF'dan o'chiriladi (kompaniya siyosati).
+    Tozalab bo'lmasa xato ko'taradi — narxli PDF mijozga chiqib ketmaydi."""
     body = {
         "flatId": flat["id"],
         "delay": int(flat.get("delay") or 0),
@@ -189,7 +286,8 @@ def flat_plan_pdf(flat: dict) -> bytes:
         "discount": False,
         "clientPaymentAmount": float(flat.get("prePayment") or 0),
     }
-    return _request_raw("POST", "/flat-shourum-pdf", body)
+    raw = _request_raw("POST", "/flat-shourum-pdf", body)
+    return _strip_prices_from_pdf(raw)
 
 
 if __name__ == "__main__":

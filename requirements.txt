@@ -6,6 +6,7 @@ python-dotenv>=1.0.1         # .env dan API kalitlarni o'qish
 # --- PDF / matn o'qish ---
 pdfplumber>=0.11.4           # PDF dan matn va jadval ajratish (asosiy)
 pypdf>=5.1.0                 # zaxira PDF o'qigich
+pymupdf>=1.26                # planirovka PDF'dan narxni o'chirish (redaction)
 
 # --- RAG / vektor baza ---
 chromadb>=0.5.20             # vektor baza (semantik qidiruv)
