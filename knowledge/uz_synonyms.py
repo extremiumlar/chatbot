@@ -35,6 +35,7 @@ SYNONYMS: dict[str, list[str]] = {
     # topshirish/muddat
     "bitadi": ["topshiriladi", "topshirish"],
     "tugaydi": ["topshiriladi", "topshirish"],
+    "beriladi": ["topshiriladi", "topshirish"],
     "muddat": ["topshiriladi", "oy"],
     # pul/to'lov
     "pul": ["to'lov", "narx", "summa"],

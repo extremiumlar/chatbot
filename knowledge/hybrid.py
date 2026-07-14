@@ -23,7 +23,9 @@ _APOSTROPHES = str.maketrans({"ʻ": "'", "'": "'", "'": "'", "`": "'", "‛": "'
 _STOPWORDS = frozenset({
     "bormi", "qancha", "necha", "qanday", "qanaqa", "nima", "nimadan", "qachon",
     "qayer", "qayerda", "mumkinmi", "kerak", "va", "uchun", "bilan", "ham",
-    "bo'ladi", "qilinadi", "beriladi", "berish", "olsa", "olish", "bu", "u",
+    "bo'ladi", "qilinadi", "berish", "olsa", "olish", "bu", "u",
+    # "beriladi" ATAYIN stopword emas — sinonim orqali "topshiriladi"ga yo'naltiriladi
+    # ("kvartira qachon beriladi" savoli topshirish bo'lagini topishi uchun).
 })
 
 
