@@ -183,11 +183,16 @@ async def _send_file(event: events.NewMessage.Event, chat_id: int, data: bytes,
 
 
 # Planirovka (xonadon rejasi) so'rovini aniqlash. "to'lov rejasi/plani" bilan
-# adashmaslik uchun faqat aniq so'zlar (планировка transliteratsiyalari) ishlatiladi.
+# adashmaslik uchun faqat ANIQ so'zlar ishlatiladi — "reja"/"режа"/"план" yakka holda
+# qo'shilmaydi (aks holda "to'lov rejasi" savoli planirovka deb yuborilib ketadi).
+# Mijozlar kirill yozuvida / ruscha ham yozadi — kirill variantlar ham kiritilgan.
 _PLAN_WORDS = ("planirovka", "planirofka", "planirov", "planirok", "planlanirovka",
-               "layout", "chizma")
-_PHOTO_WORDS = ("rasm", "surat", "foto", "photo", "fotka")
-_HOME_WORDS = ("uy", "uyni", "uyingiz", "xonadon", "kvartira", "kvartura")
+               "layout", "chizma",
+               "планировк", "чизма", "схема", "план квартиры")
+_PHOTO_WORDS = ("rasm", "surat", "foto", "photo", "fotka",
+                "расм", "сурат", "фото")
+_HOME_WORDS = ("uy", "uyni", "uyingiz", "xonadon", "kvartira", "kvartura",
+               "уй", "хонадон", "квартир")
 
 
 def _wants_plan(text: str) -> bool:
@@ -201,11 +206,12 @@ def _wants_plan(text: str) -> bool:
 
 
 def _wanted_rooms(text: str) -> int | None:
-    """Matndan xona sonini ajratadi ("3 xonali", "2 xona")."""
-    m = re.search(r"(\d)\s*[-\s]?\s*xonal", text.lower())
+    """Matndan xona sonini ajratadi ("3 xonali", "2 xona", "3 хонали", "2 комнатная")."""
+    t = text.lower()
+    m = re.search(r"(\d)\s*[-\s]?\s*(?:xonal|хонал|комнат)", t)
     if m:
         return int(m.group(1))
-    m = re.search(r"(\d)\s*xona", text.lower())
+    m = re.search(r"(\d)\s*(?:xona|хона)", t)
     if m:
         return int(m.group(1))
     return None
