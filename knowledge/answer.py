@@ -26,6 +26,12 @@ log = logging.getLogger("answer")
 _anthropic_client = None
 _gemini_client = None
 
+# Oxirgi MUVAFFAQIYATLI ishlagan Gemini modeli (RAM kesh). Zanjirning boshidagi
+# modellar 503/429 berayotgan kunlarda har javobda o'sha kaskadni qayta yurmaslik
+# uchun keyingi chaqiruvlar shu modeldan boshlanadi. Faqat muvaffaqiyatda yangilanadi;
+# u ham ishlamay qolsa zanjir odatdagidek davom etadi va yangi g'olib eslab qolinadi.
+_last_good_model: str | None = None
+
 
 @lru_cache(maxsize=1)
 def load_knowledge() -> str:
@@ -215,8 +221,15 @@ def _answer_gemini(question: str, history: list[dict] | None) -> str:
         max_output_tokens=1024,
         temperature=config.MODEL_TEMPERATURE,
     )
+    # Oxirgi ishlagan modelni zanjir boshiga qo'yamiz (qolganlari asl tartibda)
+    global _last_good_model
+    models = list(config.GEMINI_MODELS)
+    if _last_good_model in models:
+        models.remove(_last_good_model)
+        models.insert(0, _last_good_model)
+
     last_exc: Exception | None = None
-    for model in config.GEMINI_MODELS:
+    for model in models:
         cfg = dict(base_cfg)
         # "O'ylash" (thinking) faqat 2.5 modellarda qo'llanadi; 2.0 uni qabul qilmaydi.
         if "2.5" in model:
@@ -229,6 +242,7 @@ def _answer_gemini(question: str, history: list[dict] | None) -> str:
             )
             text = (resp.text or "").strip()
             if text:
+                _last_good_model = model   # keyingi chaqiruvlar shu modeldan boshlanadi
                 return text
             last_exc = RuntimeError(f"{model}: bo'sh javob")
             log.warning("Gemini '%s' bo'sh javob qaytardi — keyingi modelga o'tyapman", model)
