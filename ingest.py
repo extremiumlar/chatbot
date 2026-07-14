@@ -30,8 +30,10 @@ from knowledge.chunker import chunk_text
 # shartnomasini ingest qilsa, shaxsiy ma'lumot bot javobiga chiqib ketishi mumkin.
 # Quyidagi belgilar topilsa fayl o'tkazib yuboriladi (--allow-pii bilan majburlash mumkin).
 _PII_PATTERNS = [
-    re.compile(r"[A-Z]{2}\s?\d{7}"),   # pasport seriya-raqami (AB 1234567)
-    re.compile(r"\b\d{14}\b"),         # JShShIR / PINFL (14 raqam)
+    # pasport seriya-raqami (AB 1234567): aynan 7 raqam — oldida harf, keyida raqam
+    # davom etsa (masalan "ID 123456789012345") bu pasport EMAS
+    re.compile(r"\b[A-Z]{2}\s?\d{7}(?!\d)"),
+    re.compile(r"(?<!\d)\d{14}(?!\d)"),   # JShShIR / PINFL (aynan 14 raqam)
 ]
 
 

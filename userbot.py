@@ -206,9 +206,11 @@ def _wants_plan(text: str) -> bool:
 
 
 def _wanted_rooms(text: str) -> int | None:
-    """Matndan xona sonini ajratadi ("3 xonali", "2 xona", "3 хонали", "2 комнатная")."""
+    """Matndan xona sonini ajratadi ("3 xonali", "2 xona", "3 хонали",
+    "2 комнатная", "2х/3х-комнатная")."""
     t = text.lower()
-    m = re.search(r"(\d)\s*[-\s]?\s*(?:xonal|хонал|комнат)", t)
+    # raqamdan keyin ruscha "2х"/"2x" ko'paytirish harfi ham kelishi mumkin
+    m = re.search(r"(\d)\s*[хx]?\s*[-\s]?\s*(?:xonal|хонал|комнат)", t)
     if m:
         return int(m.group(1))
     m = re.search(r"(\d)\s*(?:xona|хона)", t)
