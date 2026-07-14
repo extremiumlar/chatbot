@@ -81,15 +81,6 @@ def _is_commercial(flat: dict) -> bool:
     return str(flat.get("number", "")).upper().startswith("M")
 
 
-def _mln(x: float) -> str:
-    return f"{x / 1_000_000:.0f}"
-
-
-def _mln1(x: float) -> str:
-    s = f"{x / 1_000_000:.1f}"
-    return s.rstrip("0").rstrip(".")
-
-
 def _rng(vals, fmt) -> str:
     lo, hi = min(vals), max(vals)
     return fmt(lo) if lo == hi else f"{fmt(lo)}–{fmt(hi)}"
@@ -97,6 +88,10 @@ def _rng(vals, fmt) -> str:
 
 def inventory_summary() -> str:
     """Botning system-prompt'iga qo'shiladigan ixcham jonli inventar xulosasi.
+
+    DIQQAT: bu yerda NARX ATAYIN YO'Q — kompaniya siyosati bo'yicha bot mijozga
+    narx aytmaydi (narx so'ralsa ofisga taklif qiladi). Ma'lumot promptga
+    kirmagani uchun model uni "bilib qolib" aytib yuborishi ham mumkin emas.
     API ishlamasa bo'sh satr qaytaradi (bot umumiy bilimga tayanadi)."""
     try:
         flats = get_available_flats()
@@ -112,11 +107,11 @@ def inventory_summary() -> str:
 
     lines: list[str] = [
         f"Hozir sotuvda jami {len(flats)} ta birlik ({len(apts)} kvartira, "
-        f"{len(comm)} tijorat). Narxlar — list narx (chegirmasiz).",
+        f"{len(comm)} tijorat).",
     ]
 
     if apts:
-        lines.append("\nKVARTIRALAR (xona turi bo'yicha):")
+        lines.append("\nKVARTIRALAR (xona turi bo'yicha, qaysi blokda nechta qolgani):")
         by_room: dict[str, list[dict]] = defaultdict(list)
         for f in apts:
             by_room[str(f["rooms"])].append(f)
@@ -129,21 +124,15 @@ def inventory_summary() -> str:
             for block in sorted(by_block, key=lambda b: int(b) if b.isdigit() else 99):
                 bi = by_block[block]
                 area = _rng([f["area"] for f in bi], lambda v: f"{v:g}")
-                price = _rng([f["price"] for f in bi], _mln)
-                ppa = _rng([f["pricePerArea"] for f in bi], _mln1)
                 floors = _rng([f["floor"] for f in bi], lambda v: f"{v:g}")
                 lines.append(
-                    f"   - {block}-blok: {len(bi)} ta | {area} m² | {floors}-qavat "
-                    f"| narx {price} mln so'm | {ppa} mln so'm/m²"
+                    f"   - {block}-blok: {len(bi)} ta | {area} m² | {floors}-qavat"
                 )
 
     if comm:
         area = _rng([f["area"] for f in comm], lambda v: f"{v:g}")
-        price = _rng([f["price"] for f in comm], _mln)
-        ppa = _rng([f["pricePerArea"] for f in comm], _mln1)
         lines.append(
-            f"\nTIJORAT (do'kon/noturar joy, asosan 1-qavat) — {len(comm)} ta | "
-            f"{area} m² | narx {price} mln so'm | {ppa} mln so'm/m²"
+            f"\nTIJORAT (do'kon/noturar joy, asosan 1-qavat) — {len(comm)} ta | {area} m²"
         )
 
     return "\n".join(lines)

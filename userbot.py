@@ -275,14 +275,12 @@ async def _handle_plan_request(event: events.NewMessage.Event, chat_id: int,
         except Exception:  # noqa: BLE001
             log.exception("Planirovka PDF olishda xato (flatId=%s)", g["flat"].get("id"))
             continue
-        pmin = int(g.get("price_min", g["flat"]["price"]) // 1_000_000)
-        pmax = int(g.get("price_max", g["flat"]["price"]) // 1_000_000)
-        narx = f"{pmin} mln" if pmin == pmax else f"{pmin}–{pmax} mln"
         caption = (
             f"{g['rooms']} xonali — {g['area']} m² planirovka 📐\n"
-            f"Bloklar: {', '.join(g['blocks'])} | narx taxminan {narx} so'mdan.\n"
-            "Bu — taxminiy narx. Ofisga tashrif buyursangiz, kelishib chiroyliroq va "
-            "arzonroq narx qilib beramiz 😊"
+            f"Bloklar: {', '.join(g['blocks'])}\n"
+            "Narxlarni bilishni xohlasangiz, sotuv ofisimizga tashrif buyuring — "
+            "menejerlarimiz siz uchun chiroyli chegirma bilan chiroyli narxlarda "
+            "qilib berishadi 😊"
         )
         try:
             await _send_file(event, chat_id, pdf,
