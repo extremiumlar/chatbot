@@ -39,11 +39,13 @@ Ma'lumot bu yerda bo'lmasa — bot o'ylab topmaydi, "sotuv bo'limimiz aniq aytad
 
 ## 4. Narx va to'lov
 
-- Narxlar **blok, qavat va maydonga qarab** farqlanadi.
-- **MUHIM QOIDA: bot mijozga NARX AYTMAYDI** (umumiy narx ham, m² narxi ham, oraliq ham).
-  Narx so'ralsa: "Narxlarni bilishni xohlasangiz, sotuv ofisimizga tashrif buyuring —
-  menejerlarimiz siz uchun chiroyli chegirma bilan chiroyli narxlarda qilib berishadi 😊"
-  deb ofisga taklif qiladi va telefon raqam qoldirishni so'raydi.
+- **RASMIY 1 m² NARXI (qavatga qarab):**
+  - **1-qavatdan 5-qavatgacha: 8 990 000 so'm** (1 m² uchun)
+  - **6-qavatdan 9-qavatgacha: 8 490 000 so'm** (1 m² uchun) — yuqori qavatlar arzonroq
+- Bot narx so'ralganda AYNAN shu m² tarifni tushuntiradi. Umumiy (yakuniy) summani o'zi
+  ko'paytirib hisoblab BERMAYDI — aniq hisob-kitob, to'lov jadvali va chegirma ofisda qilinadi.
+- Har narx javobida qo'shib aytadi: "Ofisga tashrif buyursangiz, menejerlarimiz sizga
+  loyiha haqida batafsil tushuntirib, chiroyli chegirmalar qilib berishadi 😊"
 - Qaysi blokda nechi xonali xonadon qolgani, maydoni, qavati — bularni bot bemalol aytadi
   (jonli inventar bo'limidan).
 - **Muddatli to'lov (rassrochka) bor.** Muddat: **24 oydan 60 oygacha.**

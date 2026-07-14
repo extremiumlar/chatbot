@@ -278,9 +278,9 @@ async def _handle_plan_request(event: events.NewMessage.Event, chat_id: int,
         caption = (
             f"{g['rooms']} xonali — {g['area']} m² planirovka 📐\n"
             f"Bloklar: {', '.join(g['blocks'])}\n"
-            "Narxlarni bilishni xohlasangiz, sotuv ofisimizga tashrif buyuring — "
-            "menejerlarimiz siz uchun chiroyli chegirma bilan chiroyli narxlarda "
-            "qilib berishadi 😊"
+            "1 m² narxi: 1–5-qavatlar — 8 990 000 so'm, 6–9-qavatlar — 8 490 000 so'm.\n"
+            "Ofisga tashrif buyursangiz, menejerlarimiz sizga loyiha haqida batafsil "
+            "tushuntirib, chiroyli chegirmalar qilib berishadi 😊"
         )
         try:
             await _send_file(event, chat_id, pdf,
