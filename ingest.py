@@ -15,6 +15,7 @@ Bir marta yuklangan fayl (hash bo'yicha) qayta yuklanmaydi.
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from pathlib import Path
 
@@ -24,8 +25,29 @@ import config
 from knowledge import db, pdf_reader, vectorstore
 from knowledge.chunker import chunk_text
 
+# --- PII himoyasi ---
+# RAG'ga faqat UMUMIY hujjatlar kirishi kerak. Kimdir adashib mijozning shaxsiy
+# shartnomasini ingest qilsa, shaxsiy ma'lumot bot javobiga chiqib ketishi mumkin.
+# Quyidagi belgilar topilsa fayl o'tkazib yuboriladi (--allow-pii bilan majburlash mumkin).
+_PII_PATTERNS = [
+    re.compile(r"[A-Z]{2}\s?\d{7}"),   # pasport seriya-raqami (AB 1234567)
+    re.compile(r"\b\d{14}\b"),         # JShShIR / PINFL (14 raqam)
+]
 
-def ingest_file(path: Path, use_ai: bool = True) -> None:
+
+def _looks_private(pages: list[str]) -> bool:
+    """Matn shaxsiy hujjatga (mijoz shartnomasi va h.k.) o'xshaydimi."""
+    head = "\n".join(pages)[:20_000]
+    if any(p.search(head) for p in _PII_PATTERNS):
+        return True
+    # telefon raqam + shartnoma/pasport so'zlari birga kelsa — ehtimol shaxsiy shartnoma
+    if re.search(r"\+998\d{9}", head) and re.search(
+            r"pasport|passport|паспорт|shartnoma\s*[№#]", head, re.IGNORECASE):
+        return True
+    return False
+
+
+def ingest_file(path: Path, use_ai: bool = True, allow_pii: bool = False) -> None:
     print(f"\n=== {path.name} ===")
 
     file_hash = pdf_reader.file_hash(path)
@@ -44,6 +66,13 @@ def ingest_file(path: Path, use_ai: bool = True) -> None:
         print("  ⚠  Matn topilmadi (skanerlangan PDF bo'lishi mumkin — OCR kerak).")
         return
     print(f"  📄 {len(pages)} sahifa, {total_chars:,} belgi")
+
+    # PII himoyasi: shaxsiy hujjat belgilarini tekshiramiz
+    if not allow_pii and _looks_private(pages):
+        print(f"  🔒 '{path.name}' shaxsiy ma'lumot (PII) saqlashi mumkin — ingest QILINMADI.\n"
+              "     Umumiy hujjat ekaniga ishonchingiz komil bo'lsa: --allow-pii bilan "
+              "qayta yuriting.")
+        return
 
     doc_id = db.add_document(path.name, source_type, file_hash, num_pages=len(pages))
 
@@ -142,6 +171,9 @@ def main() -> None:
     parser.add_argument("--rebuild", action="store_true",
                         help="Chroma indeksini SQLite chunks'dan qayta quradi "
                              "(embedding modeli almashganda)")
+    parser.add_argument("--allow-pii", action="store_true",
+                        help="PII himoyasini o'chirib, shaxsiy ma'lumot belgilari bor "
+                             "faylni ham ingest qiladi (ehtiyot bo'ling!)")
     args = parser.parse_args()
 
     db.init_db()
@@ -167,7 +199,7 @@ def main() -> None:
         sys.exit(1)
 
     for f in files:
-        ingest_file(f, use_ai=not args.no_ai)
+        ingest_file(f, use_ai=not args.no_ai, allow_pii=args.allow_pii)
 
     print(f"\n🎉 Hammasi bajarildi. Vektor bazada {vectorstore.count()} bo'lak bor.")
 
