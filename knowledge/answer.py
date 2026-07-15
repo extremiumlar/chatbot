@@ -19,6 +19,7 @@ import logging
 from functools import lru_cache
 
 import config
+from knowledge import price_guard
 
 log = logging.getLogger("answer")
 
@@ -292,17 +293,49 @@ def _answer_anthropic(question: str, history: list[dict] | None) -> str:
 
 # --------------------------------------------------------------------------
 
-def answer(question: str, history: list[dict] | None = None) -> str:
-    """Bitta savolga javob qaytaradi. history — oldingi suhbat (multi-turn uchun).
+# Narx-filtr leak topganda qayta urinishda savolga ilova qilinadigan qattiq eslatma
+_PRICE_RETRY_NOTE = (
+    "\n\n[TIZIM ESLATMASI: javobingda HECH QANDAY umumiy summa raqamini yozma — "
+    "faqat m² tarifni (8 990 000 / 8 490 000 so'm) ayt va aniq hisob-kitob uchun "
+    "ofisga yo'naltir.]"
+)
 
-    history format: [{"role": "user"|"assistant", "content": "..."}]
-    (userbot/bot/chat shu formatni ishlatadi; Gemini uchun ichda o'giriladi)."""
+
+def _generate(question: str, history: list[dict] | None) -> str:
+    """Tanlangan provayderdan xom javob oladi (filtrsiz)."""
     provider = config.LLM_PROVIDER.lower()
     if provider == "gemini":
         return _answer_gemini(question, history)
     if provider == "anthropic":
         return _answer_anthropic(question, history)
     raise RuntimeError(f"Noma'lum LLM_PROVIDER: {config.LLM_PROVIDER} (gemini yoki anthropic)")
+
+
+def answer(question: str, history: list[dict] | None = None) -> str:
+    """Bitta savolga javob qaytaradi. history — oldingi suhbat (multi-turn uchun).
+
+    history format: [{"role": "user"|"assistant", "content": "..."}]
+    (userbot/bot/chat shu formatni ishlatadi; Gemini uchun ichda o'giriladi).
+
+    NARX-FILTR (deterministik himoya): provayder javobi mijozga ketishidan oldin
+    price_guard bilan tekshiriladi. Taqiqlangan summa (umumiy narx, boshlang'ich
+    to'lov miqdori va h.k.) topilsa — BIR marta qattiq eslatma bilan qayta
+    so'raladi; u ham leak bersa — xavfsiz tayyor matn yuboriladi. Bu himoya
+    prompt qoidalaridan mustaqil ishlaydi (model nima demoqchi bo'lishidan
+    qat'i nazar summa mijozga yetib bormaydi)."""
+    reply = _generate(question, history)
+    leaks = price_guard.contains_forbidden_sum(reply)
+    if not leaks:
+        return reply
+
+    log.warning("Narx-filtr ushladi (1-urinish): %s — qayta so'ralmoqda", leaks)
+    reply = _generate(question + _PRICE_RETRY_NOTE, history)
+    leaks = price_guard.contains_forbidden_sum(reply)
+    if not leaks:
+        return reply
+
+    log.warning("Narx-filtr ushladi (2-urinish ham): %s — xavfsiz matn yuborildi", leaks)
+    return price_guard.SAFE_PRICE_REPLY
 
 
 if __name__ == "__main__":
