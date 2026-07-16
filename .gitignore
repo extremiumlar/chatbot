@@ -16,6 +16,7 @@ data/raw/*
 *.pdf
 *.log
 .claude/settings.local.json
+anketalar/
 
 # Django backend — baza va yuklangan rasmlar (kod emas, git ga kirmaydi)
 backend/db.sqlite3

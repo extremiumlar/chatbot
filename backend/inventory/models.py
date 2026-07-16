@@ -45,3 +45,33 @@ class Layout(models.Model):
     @property
     def has_image(self) -> bool:
         return bool(self.planirovka or self.planirovka_3d)
+
+
+class KnowledgeSection(models.Model):
+    """Bot javob beradigan BILIM BAZASI bo'limi (markdown matn).
+
+    Bot barcha faol bo'limlarni tartib bo'yicha birlashtirib, har javobda
+    to'liq modelga beradi. Admin shu yerdan faktlarni ko'radi va tahrirlaydi;
+    o'zgarish botga keshi yangilanganda (BACKEND_CACHE_TTL, ~5 daqiqa) yetadi.
+
+    DIQQAT: rasmiy m² NARX o'zgarsa faqat shu yerni emas, bot kodidagi
+    deterministik himoyani ham yangilash kerak (knowledge/price_guard.py va
+    answer.py dagi narx qoidasi) — aks holda bot yangi narxni aytolmaydi.
+    """
+    title = models.CharField("Sarlavha", max_length=120)
+    content = models.TextField(
+        "Matn (markdown)",
+        help_text="Bot shu matnni o'qiydi. Fakt qo'shish/o'zgartirish shu yerda.")
+    order = models.IntegerField("Tartib", default=0,
+                                help_text="Kichik raqam birinchi keladi")
+    is_active = models.BooleanField("Botga berilsinmi", default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField("Oxirgi tahrir", auto_now=True)
+
+    class Meta:
+        verbose_name = "Bilim bo'limi"
+        verbose_name_plural = "Bilim bazasi (bot faktlari)"
+        ordering = ("order", "id")
+
+    def __str__(self) -> str:
+        return self.title

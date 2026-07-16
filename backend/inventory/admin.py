@@ -1,7 +1,8 @@
+from django import forms
 from django.contrib import admin
 from django.utils.html import format_html
 
-from .models import Layout
+from .models import KnowledgeSection, Layout
 
 
 @admin.register(Layout)
@@ -47,3 +48,26 @@ class LayoutAdmin(admin.ModelAdmin):
             return format_html('<img src="{}" style="max-width:520px;border:1px solid #ddd" />',
                                obj.planirovka_3d.url)
         return "Hali 3D rasm yuklanmagan (ixtiyoriy)."
+
+
+class KnowledgeSectionForm(forms.ModelForm):
+    class Meta:
+        model = KnowledgeSection
+        fields = "__all__"
+        widgets = {
+            "content": forms.Textarea(attrs={
+                "rows": 34, "style": "width:96%;font-family:Consolas,monospace"}),
+        }
+
+
+@admin.register(KnowledgeSection)
+class KnowledgeSectionAdmin(admin.ModelAdmin):
+    form = KnowledgeSectionForm
+    list_display = ("title", "order", "is_active", "chars", "updated_at")
+    list_editable = ("order", "is_active")
+    search_fields = ("title", "content")
+    readonly_fields = ("created_at", "updated_at")
+
+    @admin.display(description="Hajmi (belgi)")
+    def chars(self, obj):
+        return len(obj.content or "")

@@ -15,7 +15,10 @@ Bu qism ham userbot.py / bot.py, ham lokal CLI (chat.py) tomonidan ishlatiladi.
 """
 from __future__ import annotations
 
+import json
 import logging
+import time
+import urllib.request
 from functools import lru_cache
 
 import config
@@ -34,9 +37,38 @@ _gemini_client = None
 _last_good_model: str | None = None
 
 
-@lru_cache(maxsize=1)
+# (vaqt, matn) — bilim bazasi keshi (backendga har javobda so'rov ketmasligi uchun)
+_kb_cache: tuple[float, str] | None = None
+
+
 def load_knowledge() -> str:
-    """Bilim bazasi fayllarini o'qib, bitta matnga birlashtiradi (bir marta, keshlanadi)."""
+    """Bilim bazasi matni. ASOSIY manba — Django backend (admin panelda ko'riladi va
+    tahrirlanadi, GET /api/knowledge/); backend ishlamasa — lokal .md fayllar (zaxira).
+    BACKEND_CACHE_TTL (default 300s) keshlanadi: admin tahriri botga ~5 daqiqada yetadi,
+    oradagi javoblar esa backendga so'rovsiz, xotiradagi nusxadan ishlaydi."""
+    global _kb_cache
+    now = time.time()
+    if _kb_cache and now - _kb_cache[0] < config.BACKEND_CACHE_TTL:
+        return _kb_cache[1]
+
+    text = ""
+    try:
+        url = f"{config.BACKEND_API_URL}/api/knowledge/"
+        with urllib.request.urlopen(url, timeout=5) as resp:
+            payload = json.loads(resp.read().decode("utf-8")).get("data") or {}
+        text = (payload.get("text") or "").strip()
+    except Exception as e:  # noqa: BLE001
+        log.warning("Backend bilim bazasini olishda xato (%s) — lokal fayllarga o'tildi", e)
+
+    if not text:
+        text = _load_knowledge_files()
+    _kb_cache = (now, text)
+    return text
+
+
+@lru_cache(maxsize=1)
+def _load_knowledge_files() -> str:
+    """Zaxira: knowledge_base/*.md fayllarni birlashtiradi (backend ishlamasa)."""
     parts: list[str] = []
     for name in config.KB_FILES:
         path = config.KB_DIR / name

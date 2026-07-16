@@ -53,6 +53,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'inventory',
+    'kb',        # bot bilim bazasi (storage/knowledge.db) — admin orqali ko'rish/tahrirlash
 ]
 
 MIDDLEWARE = [
@@ -92,8 +93,20 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': BASE_DIR / 'db.sqlite3',
-    }
+    },
+    # Bot bilim bazasi (RAG): hujjatlar, bo'laklar, faktlar, lidlar, suhbatlar.
+    # Bu faylni bot o'zi yaratadi/yozadi (knowledge/db.py) — Django faqat ulanadi,
+    # migratsiya qilmaydi (kb/router.py). Bot WAL rejimida yozadi, shuning uchun
+    # bir vaqtda o'qish/yozish xavfsiz; timeout - qulf kutish muddati.
+    'knowledge': {
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR.parent / 'storage' / 'knowledge.db',
+        'OPTIONS': {'timeout': 30},
+    },
 }
+
+# kb app modellarini 'knowledge' bazasiga yo'naltiradi
+DATABASE_ROUTERS = ['kb.router.KnowledgeRouter']
 
 
 # Password validation
