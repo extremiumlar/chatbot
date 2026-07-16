@@ -38,7 +38,7 @@ from telethon.tl.types import User
 
 import config
 from knowledge import answer, db
-from uysot import showroom
+from uysot import backend, showroom
 
 # Loglar konsolga HAM faylga yoziladi (storage/userbot.log, 2MB dan aylanadi) —
 # konsol oynasi yopilsa ham "nega javob bermadi?" ni keyin tekshirish mumkin.
@@ -169,14 +169,15 @@ async def _send(event: events.NewMessage.Event, chat_id: int, text: str) -> None
 
 
 async def _send_file(event: events.NewMessage.Event, chat_id: int, data: bytes,
-                     filename: str, caption: str) -> None:
-    """Fayl (masalan planirovka PDF) yuboradi. Chiquvchi hodisa matni = caption bo'lgani
-    uchun caption'ni _pending_bot_texts ga qo'shamiz."""
+                     filename: str, caption: str, force_document: bool = True) -> None:
+    """Fayl/rasm yuboradi (planirovka). Chiquvchi hodisa matni = caption bo'lgani
+    uchun caption'ni _pending_bot_texts ga qo'shamiz (menejer deb hisoblanmasin)."""
     bio = io.BytesIO(data)
     bio.name = filename
     _mark_pending(chat_id, caption)
     try:
-        await event.client.send_file(chat_id, bio, caption=caption, force_document=True)
+        await event.client.send_file(chat_id, bio, caption=caption,
+                                     force_document=force_document)
     except Exception:
         _unmark_pending(chat_id, caption)
         raise
@@ -236,66 +237,78 @@ def _save_exchange(uid: int, user_text: str, bot_text: str) -> None:
 
 async def _handle_plan_request(event: events.NewMessage.Event, chat_id: int,
                                uid: int, text: str) -> None:
-    """Planirovka so'rovi: mos turdagi PDF(lar)ni yuboradi yoki qaysi turini so'raydi."""
+    """Planirovka so'rovi: backenddagi (admin yuklagan) rasmni yuboradi yoki turini so'raydi."""
     loop = asyncio.get_running_loop()
     try:
-        layouts = await loop.run_in_executor(None, showroom.list_layouts)
+        with_img = await loop.run_in_executor(None, backend.layouts_with_image)
     except Exception:  # noqa: BLE001
-        log.exception("Planirovka turlarini olishda xato")
-        layouts = []
+        log.exception("Backenddan planirovka turlarini olishda xato")
+        with_img = []
 
-    if not layouts:
-        reply = ("Kechirasiz, planirovkalarni hozir yuklab bo'lmadi 🙏 Telefon "
-                 "raqamingizni qoldiring — menejerimiz planirovkani yuboradi.")
+    # Hech qaysi turga rasm yuklanmagan (yoki backend ishlamayapti)
+    if not with_img:
+        reply = ("Kechirasiz, planirovkalar hozir tayyor emas 🙏 Telefon raqamingizni "
+                 "qoldiring — menejerimiz planirovkani yuboradi.")
         await _send(event, chat_id, reply)
         _save_exchange(uid, text, reply)
         return
 
     rooms = _wanted_rooms(text)
-    # API rooms'ni string qaytaradi ('3'); string bo'yicha solishtiramiz
-    chosen = [g for g in layouts if rooms is None or str(g["rooms"]) == str(rooms)]
+    chosen = [l for l in with_img if rooms is None or int(l["rooms"]) == rooms]
 
-    # So'ralgan xona turi yo'q
+    # So'ralgan xona turiga rasm yo'q
     if rooms is not None and not chosen:
-        avail = ", ".join(sorted({str(g["rooms"]) for g in layouts}))
-        reply = (f"Hozircha {rooms} xonali xonadon sotuvda yo'q. Mavjud turlar: "
-                 f"{avail} xonali. Qaysi birining planirovkasini yuboray?")
+        avail = ", ".join(sorted({str(l["rooms"]) for l in with_img}))
+        reply = (f"Hozircha {rooms} xonali planirovka mavjud emas. Bizda {avail} xonali "
+                 "planirovkalar bor — qaysi birini yuboray?")
         await _send(event, chat_id, reply)
         _save_exchange(uid, text, reply)
         return
 
-    # Xona turi aytilmagan va bir nechta variant bor — ortiqcha PDF yubormay, so'raymiz
-    if rooms is None and len(chosen) > 1:
-        lines = ["Bizda hozir quyidagi xonadon turlari (planirovkalar) bor 👇"]
-        lines += [_layout_line(g) for g in chosen]
-        lines.append("\nQaysi birining planirovkasini yuboray? "
-                     'Masalan: "3 xonali planirovka".')
+    # Xona turi aytilmagan va bir nechta xil xona turi bor — ortiqcha yubormay, so'raymiz
+    if rooms is None and len({l["rooms"] for l in chosen}) > 1:
+        lines = ["Bizda quyidagi xonadon turlari (planirovkalar) bor 👇"]
+        lines += [_layout_line(l) for l in chosen]
+        lines.append('\nQaysi birining planirovkasini yuboray? Masalan: "3 xonali planirovka".')
         reply = "\n".join(lines)
         await _send(event, chat_id, reply)
         _save_exchange(uid, text, reply)
         return
 
-    # PDF(lar)ni yuboramiz (har turdan bitta namuna)
+    # Rasm(lar)ni yuboramiz — har tur uchun mavjud bo'lgan barcha variantlar (2D va/yoki 3D)
     sent_any = False
-    for g in chosen:
-        try:
-            pdf = await loop.run_in_executor(None, showroom.flat_plan_pdf, g["flat"])
-        except Exception:  # noqa: BLE001
-            log.exception("Planirovka PDF olishda xato (flatId=%s)", g["flat"].get("id"))
-            continue
-        caption = (
-            f"{g['rooms']} xonali — {g['area']} m² planirovka 📐\n"
-            f"Bloklar: {', '.join(g['blocks'])}\n"
-            "1 m² narxi: 1–5-qavatlar — 8 990 000 so'm, 6–9-qavatlar — 8 490 000 so'm.\n"
+    for l in chosen:
+        blocks = ", ".join(l.get("blocks") or [])
+        info = (
+            f"{l['rooms']} xonali — {l['area']:g} m² planirovka 📐\n"
+            + (f"Bloklar: {blocks}\n" if blocks else "")
+            + "1 m² narxi: 1–5-qavatlar — 8 990 000 so'm, 6–9-qavatlar — 8 490 000 so'm.\n"
             "Ofisga tashrif buyursangiz, menejerlarimiz sizga loyiha haqida batafsil "
             "tushuntirib, chiroyli chegirmalar qilib berishadi 😊"
         )
-        try:
-            await _send_file(event, chat_id, pdf,
-                             f"planirovka_{g['rooms']}xona_{g['area']:g}m2.pdf", caption)
-            sent_any = True
-        except Exception:  # noqa: BLE001
-            log.exception("Planirovka faylini yuborishda xato")
+        # (yorliq, url, fayl-nomi-oxiri) — ikkalasi ham ixtiyoriy, mavjudini yuboramiz
+        variants = [
+            ("2D", l.get("image_url"), "2d"),
+            ("3D", l.get("image_3d_url"), "3d"),
+        ]
+        variants = [v for v in variants if v[1]]
+        for i, (label, url, suffix) in enumerate(variants):
+            try:
+                img = await loop.run_in_executor(None, backend.fetch_image, url)
+            except Exception:  # noqa: BLE001
+                log.exception("Planirovka (%s) rasmini olishda xato (id=%s)", label, l.get("id"))
+                continue
+            # Bir necha variant bo'lsa — birinchisiga to'liq izoh, keyingisiga qisqa yorliq
+            caption = info if i == 0 else f"{label} variant"
+            if len(variants) > 1 and i == 0:
+                caption = f"{info}\n({label} variant)"
+            try:
+                await _send_file(event, chat_id, img,
+                                 f"planirovka_{l['rooms']}xona_{l['area']:g}m2_{suffix}.jpg",
+                                 caption, force_document=False)  # rasm sifatida
+                sent_any = True
+            except Exception:  # noqa: BLE001
+                log.exception("Planirovka (%s) rasmini yuborishda xato", label)
 
     if sent_any:
         await _send(event, chat_id,
@@ -303,7 +316,7 @@ async def _handle_plan_request(event: events.NewMessage.Event, chat_id: int,
                     "menejerimiz siz bilan bog'lanadi. 🏠")
         try:
             db.add_message(uid, "user", text)
-            db.add_message(uid, "assistant", "[planirovka PDF yuborildi]")
+            db.add_message(uid, "assistant", "[planirovka rasmi yuborildi]")
         except Exception:  # noqa: BLE001
             log.warning("Tarixni saqlashda xato", exc_info=True)
     else:

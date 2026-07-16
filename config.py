@@ -92,6 +92,10 @@ UYSOT_SHOWROOM_TOKEN = os.getenv("UYSOT_SHOWROOM_TOKEN", "")
 UYSOT_HOUSE_ID = os.getenv("UYSOT_HOUSE_ID", "880")   # Nurli Diyor Residence
 UYSOT_CACHE_TTL = int(os.getenv("UYSOT_CACHE_TTL", "600"))  # inventar keshi (sekund)
 
+# --- Django backend (xonadon turlari + yuklangan planirovka rasmlari) ---
+BACKEND_API_URL = os.getenv("BACKEND_API_URL", "http://127.0.0.1:8010")
+BACKEND_CACHE_TTL = int(os.getenv("BACKEND_CACHE_TTL", "300"))  # sekund
+
 # --- Javob generatsiyasi ---
 # Faktik (narx/shart) javoblar uchun past temperatura — kamroq "ijod", ko'proq aniqlik.
 MODEL_TEMPERATURE = float(os.getenv("MODEL_TEMPERATURE", "0.3"))
