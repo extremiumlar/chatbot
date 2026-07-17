@@ -1,0 +1,84 @@
+{% extends "admin/base_site.html" %}
+{% load i18n static %}
+{# Bosh sahifa: yuqorida dashboard (statistika kartalari + oxirgi lidlar), pastda odatiy app ro'yxati. Kontekst: core/dashboard.py #}
+
+{% block extrastyle %}{{ block.super }}
+<style>
+  .nd-cards { display:flex; flex-wrap:wrap; gap:12px; margin:4px 0 18px; }
+  .nd-card { flex:1 1 150px; min-width:150px; background:var(--darkened-bg,#f8f8f8);
+             border:1px solid var(--hairline-color,#e8e8e8); border-radius:8px;
+             padding:12px 14px; text-decoration:none; }
+  .nd-card:hover { border-color:var(--link-fg,#417893); }
+  .nd-card .nd-num { font-size:26px; font-weight:700; color:var(--link-fg,#417893); }
+  .nd-card .nd-label { font-size:12px; color:var(--body-quiet-color,#666); margin-top:2px; }
+  .nd-card .nd-sub { font-size:11px; color:var(--body-quiet-color,#888); margin-top:4px; }
+  .nd-leads { width:100%; border-collapse:collapse; margin-bottom:20px; }
+  .nd-leads th, .nd-leads td { padding:6px 10px; border-bottom:1px solid var(--hairline-color,#eee);
+                               font-size:12.5px; text-align:left; }
+  h2.nd-h { margin:14px 0 6px; font-size:14px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="content-main">
+
+  <div class="nd-cards">
+    <a class="nd-card" href="{{ links.leads }}">
+      <div class="nd-num">{{ leads_total }}</div>
+      <div class="nd-label">Jami lidlar</div>
+      <div class="nd-sub">bugun yangi: {{ leads_today }}</div>
+    </a>
+    <a class="nd-card" href="{{ links.messages }}">
+      <div class="nd-num">{{ msgs_today }}</div>
+      <div class="nd-label">Bugungi xabarlar</div>
+      <div class="nd-sub">suhbat tarixi</div>
+    </a>
+    <a class="nd-card" href="{{ links.layouts }}">
+      <div class="nd-num">{{ layouts_active }}</div>
+      <div class="nd-label">Faol xonadon turlari</div>
+      <div class="nd-sub">rasmli: {{ layouts_with_image }}{% if layouts_no_image %},
+        rasmsiz: {{ layouts_no_image }}{% endif %}</div>
+    </a>
+    <a class="nd-card" href="{{ links.sections }}">
+      <div class="nd-num">{{ kb_sections }}</div>
+      <div class="nd-label">Bilim bo'limlari</div>
+      <div class="nd-sub">{% if kb_last_updated %}tahrir: {{ kb_last_updated|date:"d.m H:i" }}{% else %}—{% endif %}</div>
+    </a>
+    <a class="nd-card" href="{{ links.facts }}">
+      <div class="nd-num">{{ facts_total }}</div>
+      <div class="nd-label">Faktlar (RAG)</div>
+      <div class="nd-sub">hujjatlar: {{ docs_total }}</div>
+    </a>
+    <a class="nd-card" href="{{ links.layouts }}">
+      <div class="nd-num" style="font-size:15px; padding-top:6px">
+        {% if last_sync %}{{ last_sync|date:"d.m H:i" }}{% else %}—{% endif %}</div>
+      <div class="nd-label">Oxirgi Uysot sync</div>
+      <div class="nd-sub">avto: 1 soatda</div>
+    </a>
+    <a class="nd-card" href="{% url 'price_calculator' %}">
+      <div class="nd-num">🧮</div>
+      <div class="nd-label">Narx kalkulyatori</div>
+      <div class="nd-sub">Uysot bosqichlari: m² tarif, terrasa, ta'mir, chegirma, oylik</div>
+    </a>
+  </div>
+
+  {% if recent_leads %}
+  <h2 class="nd-h">Oxirgi lidlar</h2>
+  <table class="nd-leads">
+    <tr><th>Ismi</th><th>Username</th><th>Telefon</th><th>Xabarlar</th><th>Oxirgi murojaat</th><th></th></tr>
+    {% for l in recent_leads %}
+    <tr>
+      <td><a href="{% url 'admin:kb_lead_change' l.pk %}">{{ l }}</a></td>
+      <td>{% if l.username %}@{{ l.username }}{% else %}—{% endif %}</td>
+      <td>{{ l.phone|default:"—" }}</td>
+      <td>{{ l.num_messages|default:0 }}</td>
+      <td>{{ l.last_seen }}</td>
+      <td><a href="{% url 'admin:kb_lead_change' l.pk %}">suhbatni o'qish</a></td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+
+  {% include "admin/app_list.html" with app_list=app_list show_changelinks=True %}
+</div>
+{% endblock %}

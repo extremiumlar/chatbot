@@ -47,6 +47,54 @@ class Layout(models.Model):
         return bool(self.planirovka or self.planirovka_3d)
 
 
+class PricingConfig(models.Model):
+    """Narx kalkulyatori sozlamalari (bitta yozuv). Admin paneldan o'zgartiriladi."""
+    default_prepayment = models.DecimalField(
+        "Standart boshlang'ich to'lov (so'm)", max_digits=15, decimal_places=0,
+        default=30_000_000,
+        help_text="Kalkulyatorda boshlang'ich kiritilmasa shu summa olinadi "
+                  "(kompaniya siyosati: har doim 30 mln).")
+    repair_price_per_m2 = models.DecimalField(
+        "Ta'mir tarifi (so'm/m²)", max_digits=12, decimal_places=0,
+        default=3_000_000,
+        help_text="Ta'mirli variantda har m² uchun qo'shiladigan summa.")
+    updated_at = models.DateTimeField("Oxirgi tahrir", auto_now=True)
+
+    class Meta:
+        verbose_name = "Narx sozlamalari"
+        verbose_name_plural = "Narx sozlamalari"
+
+    def __str__(self) -> str:
+        return "Narx sozlamalari"
+
+    @classmethod
+    def get(cls) -> "PricingConfig":
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
+
+class DiscountTier(models.Model):
+    """Chegirma zinapoyasi: boshlang'ich to'lov ulushi oshgani sari chegirma oshadi.
+
+    Kalkulyator boshlang'ich to'lovning umumiy narxdagi ulushini hisoblab,
+    shu ulushga yetgan ENG KATTA pog'onaning chegirmasini avtomatik qo'llaydi.
+    Masalan: 50% → 3%, 70% → 5%, 100% → 8% kabi pog'onalarni kiritishingiz mumkin."""
+    min_prepayment_percent = models.DecimalField(
+        "Boshlang'ich ulushi kamida (%)", max_digits=5, decimal_places=1,
+        help_text="Umumiy narxning necha foizi to'lansa shu pog'ona ishlaydi")
+    discount_percent = models.DecimalField(
+        "Chegirma (%)", max_digits=5, decimal_places=2)
+    is_active = models.BooleanField("Faol", default=True)
+
+    class Meta:
+        verbose_name = "Chegirma pog'onasi"
+        verbose_name_plural = "Chegirma zinapoyasi (boshlang'ichga qarab)"
+        ordering = ("min_prepayment_percent",)
+
+    def __str__(self) -> str:
+        return f"{self.min_prepayment_percent}% dan → {self.discount_percent}% chegirma"
+
+
 class KnowledgeSection(models.Model):
     """Bot javob beradigan BILIM BAZASI bo'limi (markdown matn).
 

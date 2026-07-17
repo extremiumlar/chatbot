@@ -5,7 +5,8 @@ brauzerda ko'rish, qidirish va tahrirlash imkonini beradi.
 """
 from django.contrib import admin
 from django.urls import reverse
-from django.utils.html import format_html
+from django.utils.html import escape, format_html
+from django.utils.safestring import mark_safe
 
 from .models import Chunk, Document, Fact, Lead, Message, Property
 
@@ -111,7 +112,10 @@ class LeadAdmin(admin.ModelAdmin):
     list_display = ("id", "telegram_id", "name", "username", "phone",
                     "num_messages", "first_seen", "last_seen", "suhbat")
     search_fields = ("name", "username", "phone", "telegram_id")
-    readonly_fields = ("first_seen", "last_seen", "num_messages")
+    readonly_fields = ("first_seen", "last_seen", "num_messages", "suhbat_korinishi")
+    fields = ("telegram_id", "name", "username", "phone",
+              "first_seen", "last_seen", "num_messages", "suhbat_korinishi")
+    ordering = ("-last_seen",)
     list_per_page = 50
 
     @admin.display(description="Suhbati")
@@ -122,14 +126,57 @@ class LeadAdmin(admin.ModelAdmin):
         return format_html('<a href="{}?telegram_id__exact={}">xabarlari</a>',
                            url, obj.telegram_id)
 
+    @admin.display(description="Suhbat (oxirgi 50 xabar)")
+    def suhbat_korinishi(self, obj):
+        """Lid sahifasining o'zida suhbatni chat ko'rinishida o'qish
+        (Message ro'yxatiga o'tmasdan). Eskidan yangiga tartibda."""
+        if obj.telegram_id is None:
+            return "—"
+        msgs = list(Message.objects.filter(telegram_id=obj.telegram_id)
+                    .order_by("-id")[:50])[::-1]
+        if not msgs:
+            return "Hali xabar yo'q."
+        bubbles = []
+        for m in msgs:
+            is_bot = m.role == "assistant"
+            bubbles.append(
+                '<div style="display:flex;justify-content:{just}">'
+                '<div style="max-width:75%;margin:3px 0;padding:7px 11px;'
+                'border-radius:10px;background:{bg};font-size:13px;'
+                'white-space:pre-wrap;word-break:break-word">'
+                '<b style="font-size:11px;color:{who_c}">{who}</b><br>{text}'
+                '<div style="font-size:10px;color:#999;text-align:right">{t}</div>'
+                "</div></div>".format(
+                    just="flex-end" if is_bot else "flex-start",
+                    bg="#e7f3e7" if is_bot else "#eef2f7",
+                    who_c="#2e7d32" if is_bot else "#1a5276",
+                    who="🤖 Bot" if is_bot else "👤 Mijoz",
+                    text=escape(m.content),
+                    t=escape(m.created_at or ""),
+                ))
+        full_url = reverse("admin:kb_message_changelist")
+        return mark_safe(
+            '<div style="max-height:460px;overflow-y:auto;border:1px solid #ddd;'
+            'border-radius:8px;padding:8px 10px;background:#fff">'
+            + "".join(bubbles) + "</div>"
+            + f'<p style="margin-top:6px"><a href="{full_url}?telegram_id__exact='
+              f'{obj.telegram_id}">Barcha xabarlarini ochish →</a></p>')
+
 
 @admin.register(Message)
 class MessageAdmin(admin.ModelAdmin):
-    list_display = ("id", "telegram_id", "role", "matn_qisqa", "created_at")
+    list_display = ("id", "telegram_id", "kim", "matn_qisqa", "created_at")
     list_filter = ("role",)
-    search_fields = ("content", "telegram_id")
+    search_fields = ("content", "=telegram_id")
     readonly_fields = ("created_at",)
+    ordering = ("-id",)
     list_per_page = 100
+
+    @admin.display(description="Kim", ordering="role")
+    def kim(self, obj):
+        if obj.role == "assistant":
+            return format_html('<span style="color:#2e7d32">🤖 Bot</span>')
+        return format_html('<span style="color:#1a5276">👤 Mijoz</span>')
 
     @admin.display(description="Xabar (qisqa)")
     def matn_qisqa(self, obj):

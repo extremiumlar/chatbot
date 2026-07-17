@@ -2,7 +2,7 @@ from django import forms
 from django.contrib import admin
 from django.utils.html import format_html
 
-from .models import KnowledgeSection, Layout
+from .models import DiscountTier, KnowledgeSection, Layout, PricingConfig
 
 
 @admin.register(Layout)
@@ -11,6 +11,8 @@ class LayoutAdmin(admin.ModelAdmin):
                     "image_tag", "is_active", "synced_at")
     list_filter = ("rooms", "is_active")
     list_editable = ("is_active",)
+    search_fields = ("blocks", "note")
+    list_per_page = 50
     readonly_fields = ("image_preview", "image_3d_preview", "sample_flat_id", "synced_at",
                        "created_at", "updated_at")
     fields = ("rooms", "area", "blocks", "available_count", "total_count",
@@ -48,6 +50,26 @@ class LayoutAdmin(admin.ModelAdmin):
             return format_html('<img src="{}" style="max-width:520px;border:1px solid #ddd" />',
                                obj.planirovka_3d.url)
         return "Hali 3D rasm yuklanmagan (ixtiyoriy)."
+
+
+@admin.register(PricingConfig)
+class PricingConfigAdmin(admin.ModelAdmin):
+    """Bitta yozuvli sozlama: qo'shish/o'chirish yo'q, faqat tahrirlash."""
+    list_display = ("__str__", "default_prepayment", "repair_price_per_m2", "updated_at")
+    readonly_fields = ("updated_at",)
+
+    def has_add_permission(self, request):
+        return not PricingConfig.objects.exists()
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(DiscountTier)
+class DiscountTierAdmin(admin.ModelAdmin):
+    list_display = ("min_prepayment_percent", "discount_percent", "is_active")
+    list_editable = ("discount_percent", "is_active")
+    ordering = ("min_prepayment_percent",)
 
 
 class KnowledgeSectionForm(forms.ModelForm):

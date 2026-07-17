@@ -1,0 +1,163 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+{# Narx kalkulyatori — Uysot narx bosqichlarining nusxasi (view: inventory/views.py price_calculator) #}
+
+{% block extrastyle %}{{ block.super }}
+<style>
+  .nk-wrap { display:flex; flex-wrap:wrap; gap:24px; align-items:flex-start; }
+  .nk-form { flex:0 1 430px; background:var(--darkened-bg,#f8f8f8);
+             border:1px solid var(--hairline-color,#e8e8e8); border-radius:8px; padding:16px 18px; }
+  .nk-form label { display:block; font-size:12px; font-weight:600; margin:10px 0 3px; }
+  .nk-form input[type=text], .nk-form input[type=number], .nk-form select {
+      width:100%; box-sizing:border-box; padding:6px 8px; }
+  .nk-row { display:flex; gap:10px; }
+  .nk-row > div { flex:1; }
+  .nk-note { font-size:11px; color:var(--body-quiet-color,#777); margin-top:2px; }
+  .nk-result { flex:1 1 420px; }
+  .nk-result table { width:100%; border-collapse:collapse; }
+  .nk-result th, .nk-result td { text-align:left; padding:7px 10px; font-size:13px;
+      border-bottom:1px solid var(--hairline-color,#eee); }
+  .nk-result td.num { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .nk-total td { font-weight:700; font-size:14px; background:var(--darkened-bg,#f4f8f4); }
+  .nk-stage { color:var(--body-quiet-color,#888); font-size:11px; }
+  .nk-mode { display:flex; gap:16px; margin-bottom:4px; }
+  .nk-mode label { display:inline; font-weight:400; }
+</style>
+<script>
+  function nkMode() {
+    var m = document.querySelector('input[name=mode]:checked').value;
+    document.getElementById('nk-flat-box').style.display = (m === 'flat') ? '' : 'none';
+    document.getElementById('nk-manual-box').style.display = (m === 'manual') ? '' : 'none';
+  }
+</script>
+{% endblock %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs"><a href="{% url 'admin:index' %}">Bosh sahifa</a> &rsaquo; Narx kalkulyatori</div>
+{% endblock %}
+
+{% block content %}
+<h1>Narx kalkulyatori</h1>
+<p class="nk-note" style="max-width:900px">Hisob Uysot showroom tizimidagi bosqichlarning aynan nusxasi:
+bazaviy narx (maydon × m² tarif) + terrasa + ta'mir opsiyasi ({{ repair_tariff|floatformat:0 }} so'm/m²)
+− chegirma → boshlang'ich to'lov va foizsiz oylik bo'linma. Bu sahifa faqat xodimlar uchun —
+bot mijozga umumiy summa aytmaydi.</p>
+
+<div class="nk-wrap">
+  <form class="nk-form" method="get" onsubmit="">
+    <input type="hidden" name="hisobla" value="1">
+
+    <div class="nk-mode">
+      <label><input type="radio" name="mode" value="flat" onchange="nkMode()"
+        {% if values.mode != "manual" %}checked{% endif %}> Uysot'dagi xonadon</label>
+      <label><input type="radio" name="mode" value="manual" onchange="nkMode()"
+        {% if values.mode == "manual" %}checked{% endif %}> Qo'lda kiritish</label>
+    </div>
+
+    <div id="nk-flat-box" {% if values.mode == "manual" %}style="display:none"{% endif %}>
+      <label>Xonadon (sotuvda, jonli ro'yxat)</label>
+      <select name="flat_id">
+        {% for fid, label in flats %}
+          <option value="{{ fid }}" {% if values.flat_id == fid|stringformat:"s" %}selected{% endif %}>{{ label }}</option>
+        {% empty %}
+          <option value="">— Uysot API javob bermadi —</option>
+        {% endfor %}
+      </select>
+      <div class="nk-note">m² tarif, terrasa maydoni/tarifi — Uysot'dan avtomatik olinadi.</div>
+    </div>
+
+    <div id="nk-manual-box" {% if values.mode != "manual" %}style="display:none"{% endif %}>
+      <div class="nk-row">
+        <div><label>Maydon (m²)</label>
+          <input type="text" name="area" value="{{ values.area|default:'' }}"></div>
+        <div><label>m² tarif (so'm)</label>
+          <input type="text" name="price_per_m2" value="{{ values.price_per_m2|default:'' }}"
+                 placeholder="8990000 / 8490000"></div>
+      </div>
+      <div class="nk-row">
+        <div><label>Terrasa maydoni (m²)</label>
+          <input type="text" name="terrace_area" value="{{ values.terrace_area|default:'' }}"></div>
+        <div><label>Terrasa tarifi (so'm/m²)</label>
+          <input type="text" name="terrace_price" value="{{ values.terrace_price|default:'' }}"
+                 placeholder="3000000"></div>
+      </div>
+    </div>
+
+    <label style="margin-top:12px">
+      <input type="checkbox" name="repaired" value="1"
+             {% if values.repaired == "1" %}checked{% endif %}>
+      Ta'mirli variant (+{{ repair_tariff|floatformat:0 }} so'm/m²)
+    </label>
+
+    <div class="nk-row">
+      <div><label>Chegirma (%)</label>
+        <input type="text" name="discount_percent" value="{{ values.discount_percent|default:'' }}" placeholder="0"></div>
+      <div><label>Chegirma (so'm)</label>
+        <input type="text" name="discount_sum" value="{{ values.discount_sum|default:'' }}" placeholder="0"></div>
+    </div>
+    <div class="nk-note">Uysot'da chegirma jadvali sozlanmagan — bu yerda qo'lda kiritiladi.</div>
+
+    <div class="nk-row">
+      <div><label>Boshlang'ich summa (so'm)</label>
+        <input type="text" name="prepayment_sum" value="{{ values.prepayment_sum|default:'' }}"
+               placeholder="standart: {{ default_prepayment|floatformat:'0g' }}"></div>
+      <div><label>yoki foizda (%)</label>
+        <input type="text" name="prepayment_percent" value="{{ values.prepayment_percent|default:'' }}"></div>
+    </div>
+    <div class="nk-note">Bo'sh qoldirilsa standart boshlang'ich ({{ default_prepayment|floatformat:"0g" }} so'm)
+      olinadi — «Narx sozlamalari»da o'zgartiriladi. Ko'proq to'lansa «Chegirma zinapoyasi»dagi
+      mos chegirma AVTOMATIK qo'llanadi.</div>
+
+    <label>Muddat (oy)</label>
+    <input type="number" name="months" min="0" max="120" value="{{ values.months|default:'36' }}">
+    <div class="nk-note">0 = to'liq to'lov. Qoldiq ustama foizsiz teng bo'linadi.</div>
+
+    <p style="margin-top:14px">
+      <input type="submit" class="default" value="Hisoblash">
+    </p>
+  </form>
+
+  <div class="nk-result">
+    {% if error %}<p class="errornote">{{ error }}</p>{% endif %}
+    {% if result %}
+      {% if flat %}<h2 style="font-size:14px">{{ flat.label }}</h2>{% endif %}
+      <table>
+        <tr><td class="nk-stage">1-bosqich</td><td>Bazaviy narx ({{ result.area|floatformat:"-2" }} m² × {{ result.price_per_m2|floatformat:"0g" }})</td>
+            <td class="num">{{ result.base|floatformat:"0g" }} so'm</td></tr>
+        {% if result.terrace %}
+        <tr><td class="nk-stage">2-bosqich</td><td>Terrasa ({{ result.terrace_area|floatformat:"-2" }} m² × {{ result.terrace_price_per_m2|floatformat:"0g" }})</td>
+            <td class="num">+ {{ result.terrace|floatformat:"0g" }} so'm</td></tr>
+        {% endif %}
+        {% if result.repaired %}
+        <tr><td class="nk-stage">3-bosqich</td><td>Ta'mir ({{ result.area|floatformat:"-2" }} m² × {{ result.repair_price_per_m2|floatformat:"0g" }})</td>
+            <td class="num">+ {{ result.repair|floatformat:"0g" }} so'm</td></tr>
+        {% endif %}
+        <tr class="nk-total"><td></td><td>Umumiy narx</td>
+            <td class="num">{{ result.total|floatformat:"0g" }} so'm</td></tr>
+        <tr><td class="nk-stage">4-bosqich</td><td>Chegirma ({{ result.discount_percent_effective|floatformat:"-2" }}%){% if auto_discount %}
+            <div class="nk-note">shundan {{ auto_discount|floatformat:"-2" }}% — boshlang'ich ulushi uchun avto (zinapoya)</div>{% endif %}</td>
+            <td class="num">− {{ result.discount|floatformat:"0g" }} so'm</td></tr>
+        <tr class="nk-total"><td></td><td>Sotuv summasi</td>
+            <td class="num">{{ result.sale|floatformat:"0g" }} so'm</td></tr>
+        <tr><td class="nk-stage" rowspan="3">5-bosqich</td>
+            <td>Boshlang'ich to'lov ({{ result.prepayment_percent|floatformat:"-2" }}%)</td>
+            <td class="num">{{ result.prepayment|floatformat:"0g" }} so'm</td></tr>
+        <tr><td>Qoldiq</td><td class="num">{{ result.remainder|floatformat:"0g" }} so'm</td></tr>
+        <tr><td>Muddat / oylik to'lov</td>
+            <td class="num">{{ result.months }} oy —
+              <b>{{ result.monthly|floatformat:"0g" }} so'm</b></td></tr>
+      </table>
+
+      {% if flat %}
+      <p style="margin-top:12px">
+        <a class="button" href="{% url 'price_pdf' %}?flat_id={{ flat.id }}&months={{ result.months }}&prepayment_sum={{ result.prepayment|floatformat:'0' }}&repaired={% if result.repaired %}1{% else %}0{% endif %}">
+          Uysot rasmiy hisob-varaq PDF'ini yuklab olish</a>
+        <span class="nk-note">(chegirma PDF'da chiqmaydi — Uysot'da chegirma sozlanmagan)</span>
+      </p>
+      {% endif %}
+    {% elif not error %}
+      <p class="nk-note">Chapdan parametrlarni tanlab «Hisoblash»ni bosing.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
