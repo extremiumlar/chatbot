@@ -95,6 +95,48 @@ class DiscountTier(models.Model):
         return f"{self.min_prepayment_percent}% dan → {self.discount_percent}% chegirma"
 
 
+class QAEntry(models.Model):
+    """Menejerlar anketasidan olingan RASMIY savol-javob (bilim_dataset.json).
+
+    Bot mijozning savoli shu ro'yxatdagi savolga mos kelsa, javobni AYNAN shu
+    tasdiqlangan javob mazmuni bilan beradi (fakt va raqamlarni o'zgartirmasdan).
+    Import: `python manage.py import_qa <fayl.json>`. Admin shu yerdan ko'radi,
+    tahrirlaydi; javobi bo'sh/"bilmayman" bo'lganlari importda o'zi o'chiq bo'ladi.
+    """
+    KATEGORIYALAR = [
+        ("asosiy", "Asosiy"), ("etiroz", "E'tiroz (qarshiliklar)"),
+        ("hudud", "Hudud"), ("jarayon", "Jarayon"), ("kompaniya", "Kompaniya"),
+        ("narx", "Narx"), ("ochiq", "Ochiq savollar"), ("qurilish", "Qurilish"),
+        ("topshirish", "Topshirish"), ("umumiy", "Umumiy"), ("xonadon", "Xonadon"),
+    ]
+
+    savol = models.TextField("Savol")
+    javob = models.TextField("Rasmiy javob",
+                             help_text="Bot AYNAN shu javob mazmuni bilan javob beradi.")
+    kategoriya = models.CharField("Kategoriya", max_length=30,
+                                  choices=KATEGORIYALAR, default="umumiy")
+    sana_sezgir = models.BooleanField(
+        "Sana-sezgir", default=False,
+        help_text="Vaqt o'tishi bilan eskiradigan javob (masalan qurilish holati).")
+    qayta_tekshirish_kerak = models.BooleanField("Qayta tekshirish kerak", default=False)
+    yangilangan = models.DateField("Yangilangan sana", null=True, blank=True)
+    is_active = models.BooleanField("Botga berilsinmi", default=True)
+    note = models.CharField("Izoh", max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Rasmiy savol-javob"
+        verbose_name_plural = "Rasmiy savol-javoblar (anketa)"
+        ordering = ("kategoriya", "id")
+        constraints = [
+            models.UniqueConstraint(fields=["savol", "javob"], name="uniq_savol_javob"),
+        ]
+
+    def __str__(self) -> str:
+        return self.savol[:80]
+
+
 class KnowledgeSection(models.Model):
     """Bot javob beradigan BILIM BAZASI bo'limi (markdown matn).
 

@@ -5,7 +5,7 @@ from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
 
 from . import pricing, services
-from .models import KnowledgeSection, Layout
+from .models import KnowledgeSection, Layout, QAEntry
 
 
 def layouts_api(request):
@@ -135,6 +135,28 @@ def price_pdf(request):
     resp = HttpResponse(pdf, content_type="application/pdf")
     resp["Content-Disposition"] = f'attachment; filename="narx_{flat_id}.pdf"'
     return resp
+
+
+def qa_api(request):
+    """GET /api/qa/ — menejerlar tasdiqlagan RASMIY savol-javoblar (faol).
+
+    Bot bularni system promptga alohida blok qilib qo'yadi va mijoz savoli mos
+    kelganda javobni AYNAN shu tasdiqlangan mazmun bilan beradi."""
+    items = []
+    for q in QAEntry.objects.filter(is_active=True):
+        items.append({
+            "savol": q.savol,
+            "javob": q.javob,
+            "kategoriya": q.kategoriya,
+            "sana_sezgir": q.sana_sezgir,
+            "yangilangan": q.yangilangan.isoformat() if q.yangilangan else None,
+        })
+    latest = (QAEntry.objects.filter(is_active=True)
+              .order_by("-updated_at").values_list("updated_at", flat=True).first())
+    return JsonResponse(
+        {"data": {"entries": items,
+                  "updated_at": latest.isoformat() if latest else None}},
+        json_dumps_params={"ensure_ascii": False})
 
 
 def knowledge_api(request):

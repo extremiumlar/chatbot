@@ -22,6 +22,10 @@ anketalar/
 backend/db.sqlite3
 backend/media/
 
+# Menejerlar anketasi (ichki sotuv javoblari) — public repoga kirmasin.
+# Ma'lumot backend bazasiga import qilinadi (manage.py import_qa).
+bilim_dataset.json
+
 # OS
 Thumbs.db
 .DS_Store

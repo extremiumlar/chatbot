@@ -39,6 +39,8 @@ _last_good_model: str | None = None
 
 # (vaqt, matn) — bilim bazasi keshi (backendga har javobda so'rov ketmasligi uchun)
 _kb_cache: tuple[float, str] | None = None
+# (vaqt, matn) — rasmiy savol-javoblar keshi (/api/qa/)
+_qa_cache: tuple[float, str] | None = None
 
 
 def load_knowledge() -> str:
@@ -80,6 +82,48 @@ def _load_knowledge_files() -> str:
             "knowledge_base/ ichiga .md fayl qo'ying."
         )
     return "\n\n".join(parts)
+
+
+def _official_qa_block() -> str:
+    """Menejerlar tasdiqlagan RASMIY savol-javoblar (backend /api/qa/).
+    Backend ishlamasa yoki bo'sh bo'lsa — bo'sh satr (bot umumiy bilimga tayanadi)."""
+    global _qa_cache
+    now = time.time()
+    if _qa_cache and now - _qa_cache[0] < config.BACKEND_CACHE_TTL:
+        return _qa_cache[1]
+
+    text = ""
+    try:
+        url = f"{config.BACKEND_API_URL}/api/qa/"
+        with urllib.request.urlopen(url, timeout=5) as resp:
+            payload = json.loads(resp.read().decode("utf-8")).get("data") or {}
+        entries = payload.get("entries") or []
+        if entries:
+            lines = []
+            for e in entries:
+                extra = ""
+                if e.get("sana_sezgir") and e.get("yangilangan"):
+                    extra = f" ({e['yangilangan']} holatiga)"
+                lines.append(f"S: {e['savol']}\nJ: {e['javob']}{extra}")
+            text = (
+                "\n\n============================\n"
+                "RASMIY SAVOL-JAVOBLAR (menejerlar tasdiqlagan — USTUVOR manba)\n"
+                "============================\n"
+                "Mijozning savoli quyidagilardan biriga mos kelsa (ma'nosi bir xil "
+                "bo'lsa ham), javobni AYNAN shu tasdiqlangan javob asosida ber: "
+                "undagi barcha fakt, raqam va shartlarni O'ZGARTIRMASDAN, QO'SHMASDAN "
+                "ayt. Matn kirill yozuvida bo'lsa, lotin yozuvida ravon o'zbekchada "
+                "yetkaz, lekin mazmunni aynan saqla. Bir savolga bir nechta rasmiy "
+                "javob bo'lsa — ularni birlashtirib ber. Bu bo'lim boshqa umumiy "
+                "ma'lumotdan USTUVOR.\n\n" + "\n\n".join(lines)
+            )
+    except Exception as e:  # noqa: BLE001
+        log.warning("Backend /api/qa/ olishda xato: %s", e)
+        # xato bo'lsa keshga yozmaymiz — keyingi javobda qayta uriniladi
+        return _qa_cache[1] if _qa_cache else ""
+
+    _qa_cache = (now, text)
+    return text
 
 
 def _live_inventory_block() -> str:
@@ -167,6 +211,10 @@ Sen FAQAT quyidagi mavzularda gaplashasan:
 - xonadonlar, narx, to'lov, muddatli to'lov, chegirma shartlari
 - xonadon planirovkasi / rejasi / chizmasi (tizim planirovkani PDF holida yuboradi)
 - qurilish holati, joylashuv, infratuzilma, materiallar, hujjatlar
+- ATROFDAGI ijtimoiy infratuzilma: maktab, bog'cha, klinika/shifoxona/poliklinika, \
+bozor, do'kon, transport, masjid va h.k. qanchalik yaqinligi — bular JOYLASHUV savoli, \
+MAVZUGA TEGISHLI (rad etma; bilim bazasida bori bilan javob ber, masofa noma'lum bo'lsa \
+sotuv bo'limiga yo'naltir)
 - SHARTNOMA shartlari: kafolat, kechikish/jarima, bekor qilish va pul qaytarish,
   egalik huquqi o'tkazish, maydon o'zgarishi, fors-major va boshqa shartnoma bandlari
 - uy ko'rish, bron, sotib olish jarayoni, aloqa
@@ -221,7 +269,7 @@ ammo bosim o'tkazmasdan. Ozgina emoji ishlatsang bo'ladi.
 ============================
 BILIM BAZASI
 ============================
-{load_knowledge()}{_live_inventory_block()}{_rag_context_block(question)}"""
+{load_knowledge()}{_official_qa_block()}{_live_inventory_block()}{_rag_context_block(question)}"""
 
 
 # --------------------------------------------------------------------------

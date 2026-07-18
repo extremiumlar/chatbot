@@ -2,7 +2,7 @@ from django import forms
 from django.contrib import admin
 from django.utils.html import format_html
 
-from .models import DiscountTier, KnowledgeSection, Layout, PricingConfig
+from .models import DiscountTier, KnowledgeSection, Layout, PricingConfig, QAEntry
 
 
 @admin.register(Layout)
@@ -70,6 +70,32 @@ class DiscountTierAdmin(admin.ModelAdmin):
     list_display = ("min_prepayment_percent", "discount_percent", "is_active")
     list_editable = ("discount_percent", "is_active")
     ordering = ("min_prepayment_percent",)
+
+
+class QAEntryForm(forms.ModelForm):
+    class Meta:
+        model = QAEntry
+        fields = "__all__"
+        widgets = {
+            "savol": forms.Textarea(attrs={"rows": 3, "style": "width:96%"}),
+            "javob": forms.Textarea(attrs={"rows": 8, "style": "width:96%"}),
+        }
+
+
+@admin.register(QAEntry)
+class QAEntryAdmin(admin.ModelAdmin):
+    form = QAEntryForm
+    list_display = ("qisqa_savol", "kategoriya", "is_active",
+                    "sana_sezgir", "qayta_tekshirish_kerak", "yangilangan")
+    list_filter = ("kategoriya", "is_active", "sana_sezgir", "qayta_tekshirish_kerak")
+    list_editable = ("is_active", "qayta_tekshirish_kerak")
+    search_fields = ("savol", "javob", "note")
+    list_per_page = 50
+    readonly_fields = ("created_at", "updated_at")
+
+    @admin.display(description="Savol")
+    def qisqa_savol(self, obj):
+        return obj.savol[:90]
 
 
 class KnowledgeSectionForm(forms.ModelForm):
