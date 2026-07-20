@@ -25,11 +25,19 @@ from __future__ import annotations
 
 import re
 
-# Rasmiy m² tarifi — normalizatsiyadan (ajratkichlarni olib tashlash) keyingi ko'rinish.
-# Yagona ruxsat etilgan "katta" summalar.
-ALLOWED_TARIFF_DIGITS = frozenset({"8990000", "8490000"})
-# "mln" yozuvidagi ruxsat etilgan tarif qiymatlari (8.99 mln = 8 990 000)
-ALLOWED_MLN_VALUES = frozenset({8.49, 8.99})
+import config
+
+# Rasmiy m² tarifi — YAGONA manba config.py (TARIFF_M2_*). Narx o'zgarsa faqat
+# config yangilanadi — filtr, prompt va izohlar avtomatik unga ergashadi.
+ALLOWED_TARIFF_DIGITS = frozenset({
+    str(config.TARIFF_M2_LOW_FLOORS), str(config.TARIFF_M2_HIGH_FLOORS)})
+# Pul bo'lmagan rasmiy raqamlar (7+ xonali bo'lgani uchun filtrga tushmasin):
+# kompaniya STIR raqami (rasmiy QA javobida bor — mijoz rekvizit so'rasa aytiladi).
+ALLOWED_NON_MONEY_DIGITS = frozenset({"311781954"})
+# "mln" yozuvidagi ruxsat etilgan tarif qiymatlari (masalan 8.99 mln = 8 990 000)
+ALLOWED_MLN_VALUES = frozenset({
+    round(config.TARIFF_M2_LOW_FLOORS / 1_000_000, 2),
+    round(config.TARIFF_M2_HIGH_FLOORS / 1_000_000, 2)})
 
 # Javob almashtiriladigan xavfsiz matn (2-urinish ham leak bersa)
 SAFE_PRICE_REPLY = (
@@ -74,6 +82,8 @@ def contains_forbidden_sum(text: str) -> list[str]:
             continue                      # kichik son — xavfsiz
         if d in ALLOWED_TARIFF_DIGITS:
             continue                      # rasmiy m² tarif
+        if d in ALLOWED_NON_MONEY_DIGITS:
+            continue                      # STIR kabi pul bo'lmagan rasmiy raqamlar
         if d.startswith("998") and len(d) == 12:
             continue                      # O'zbekiston telefon raqami (+998 XX XXX XX XX)
         leaks.append(frag)

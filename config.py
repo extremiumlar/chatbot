@@ -100,6 +100,20 @@ BACKEND_CACHE_TTL = int(os.getenv("BACKEND_CACHE_TTL", "300"))  # sekund
 # Faktik (narx/shart) javoblar uchun past temperatura — kamroq "ijod", ko'proq aniqlik.
 MODEL_TEMPERATURE = float(os.getenv("MODEL_TEMPERATURE", "0.3"))
 
+# --- RASMIY m² TARIF (yagona manba — narx o'zgarsa FAQAT shu yerda yangilanadi) ---
+# Bot promptidagi narx qoidasi, narx-filtr (price_guard) ruxsati va planirovka
+# izohlari hammasi shu qiymatlardan olinadi. .env orqali ham o'zgartirsa bo'ladi.
+TARIFF_M2_LOW_FLOORS = int(os.getenv("TARIFF_M2_LOW_FLOORS", "8990000"))    # 1-5-qavat
+TARIFF_M2_HIGH_FLOORS = int(os.getenv("TARIFF_M2_HIGH_FLOORS", "8490000"))  # 6-9-qavat
+
+
+def tariff_text() -> str:
+    """Rasmiy tarifning matnli ko'rinishi (prompt/izohlarda ishlatiladi)."""
+    low = f"{TARIFF_M2_LOW_FLOORS:,}".replace(",", " ")
+    high = f"{TARIFF_M2_HIGH_FLOORS:,}".replace(",", " ")
+    return (f"1–5-qavatlar — {low} so'm/m², "
+            f"6–9-qavatlar — {high} so'm/m²")
+
 # --- RAG (semantik qidiruv botga ulanadi) ---
 # RAG'ni butunlay o'chirish (masalan kichik VPS'da torch yuklanmasin uchun): RAG_ENABLED=0
 RAG_ENABLED = os.getenv("RAG_ENABLED", "1") == "1"

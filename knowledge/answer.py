@@ -119,8 +119,12 @@ def _official_qa_block() -> str:
             )
     except Exception as e:  # noqa: BLE001
         log.warning("Backend /api/qa/ olishda xato: %s", e)
-        # xato bo'lsa keshga yozmaymiz — keyingi javobda qayta uriniladi
-        return _qa_cache[1] if _qa_cache else ""
+        # Muvaffaqiyatsizlikni ham (eski matn bilan) 60 soniyaga keshlaymiz —
+        # aks holda backend o'chiq paytda HAR bir mijoz xabari 5s timeout kutib
+        # qolardi. 60s dan keyin qayta urinadi; tiklangach yangi ma'lumot keladi.
+        stale = _qa_cache[1] if _qa_cache else ""
+        _qa_cache = (now - max(0, config.BACKEND_CACHE_TTL - 60), stale)
+        return stale
 
     _qa_cache = (now, text)
     return text
@@ -247,8 +251,7 @@ bo'limimiz sizga aniq ma'lumot beradi" deb ayt va telefon raqam qoldirishni takl
 3. CHEGIRMANI o'zing hisoblab BERMA va aniq chegirma summasini aytma. Faqat: chegirma \
 boshlang'ich to'lov hajmiga qarab beriladi, aniq hisob ofisda qilinadi, deb ayt.
 4. NARX QOIDASI (juda muhim!): narx so'ralganda FAQAT bilim bazasidagi RASMIY m² tarifni \
-ayt: 1–5-qavatlar — 8 990 000 so'm/m², 6–9-qavatlar — 8 490 000 so'm/m² (yuqori qavatlar \
-arzonroq). Undan boshqa narx manbai ishlatма va umumiy (yakuniy) summani O'ZING KO'PAYTIRIB \
+ayt: {config.tariff_text()} (yuqori qavatlar arzonroq). Undan boshqa narx manbai ishlatма va umumiy (yakuniy) summani O'ZING KO'PAYTIRIB \
 HISOBLAB BERMA. Mijoz O'ZI ko'paytirib hisoblab "to'g'rimi?" deb so'rasa ham — natijani \
 TASDIQLAMA, RAD ETMA va umumiy summani TAKRORLAMA (hech qanday jami summa raqamini yozma). \
 Sabab: yakuniy narx chegirma, to'lov muddati va xonadonga qarab o'zgaradi — qog'ozdagi \
@@ -376,7 +379,7 @@ def _answer_anthropic(question: str, history: list[dict] | None) -> str:
 # Narx-filtr leak topganda qayta urinishda savolga ilova qilinadigan qattiq eslatma
 _PRICE_RETRY_NOTE = (
     "\n\n[TIZIM ESLATMASI: javobingda HECH QANDAY umumiy summa raqamini yozma — "
-    "faqat m² tarifni (8 990 000 / 8 490 000 so'm) ayt va aniq hisob-kitob uchun "
+    f"faqat m² tarifni ({config.tariff_text()}) ayt va aniq hisob-kitob uchun "
     "ofisga yo'naltir.]"
 )
 

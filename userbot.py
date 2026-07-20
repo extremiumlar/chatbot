@@ -70,6 +70,11 @@ _locks: dict[int, asyncio.Lock] = {}
 _pending_bot_texts: dict[int, deque[str]] = {}
 # Rate-limit: chat_id -> oxirgi xabarlar vaqtlari (monotonic)
 _msg_times: dict[int, list[float]] = {}
+# Bot "qaysi turining planirovkasini yuboray?" deb so'ragan chatlar:
+# chat_id -> muddat (monotonic). Shu oynada mijoz shunchaki "2 xonali" desa ham
+# bu planirovka tanlovi deb qabul qilinadi (aks holda LLM'ga ketib adashardi).
+_awaiting_plan_choice: dict[int, float] = {}
+PLAN_CHOICE_WINDOW = 600.0   # sekund (10 daqiqa)
 
 MAX_TRACKED_USERS = 1000   # xotira o'smasligi uchun kuzatiladigan foydalanuvchilar chegarasi
 MAX_TG_LEN = 4096          # Telegram bitta xabar uzunligi chegarasi
@@ -208,16 +213,19 @@ def _wants_plan(text: str) -> bool:
 
 def _wanted_rooms(text: str) -> int | None:
     """Matndan xona sonini ajratadi ("3 xonali", "2 xona", "3 хонали",
-    "2 комнатная", "2х/3х-комнатная")."""
+    "2 комнатная", "2х/3х-комнатная"). "10 xonali" kabi ko'p xonali raqam ham
+    to'liq o'qiladi (aks holda "0 xonali" bo'lib qolardi)."""
     t = text.lower()
+    # (?<![mм\d]) — "m2"/"м2" dagi raqam xona soni emas (oldida m/м bo'lsa o'tkazamiz).
     # raqamdan keyin ruscha "2х"/"2x" ko'paytirish harfi ham kelishi mumkin
-    m = re.search(r"(\d)\s*[хx]?\s*[-\s]?\s*(?:xonal|хонал|комнат)", t)
-    if m:
-        return int(m.group(1))
-    m = re.search(r"(\d)\s*(?:xona|хона)", t)
-    if m:
-        return int(m.group(1))
-    return None
+    m = re.search(r"(?<![mм\d])(\d+)\s*[хx]?\s*[-\s]?\s*(?:xonal|хонал|комнат)", t)
+    if not m:
+        m = re.search(r"(?<![mм\d])(\d+)\s*(?:xona|хона)", t)
+    if not m:
+        return None
+    rooms = int(m.group(1))
+    # aql bovar qilmaydigan qiymat (masalan "62 m2 xonadon"dagi 62) — e'tiborsiz
+    return rooms if 1 <= rooms <= 9 else None
 
 
 def _layout_line(g: dict) -> str:
@@ -226,8 +234,12 @@ def _layout_line(g: dict) -> str:
 
 
 def _save_exchange(uid: int, user_text: str, bot_text: str) -> None:
-    """Suhbat juftligini bazaga yozadi (diagnostika: bot NIMA deb javob berganini
-    keyin DB dan ko'rish mumkin — konsol yopilgan bo'lsa ham)."""
+    """Suhbat juftligini DB'ga HAM RAM tarixiga yozadi. RAM'siz keyingi LLM
+    javobi bu almashinuvni "ko'rmay" qolardi (RAM keshi DB'dan ustun turadi)."""
+    h = _load_history(uid)
+    h.append({"role": "user", "content": user_text})
+    h.append({"role": "assistant", "content": bot_text})
+    _history[uid] = h[-HISTORY_TURNS:]
     try:
         db.add_message(uid, "user", user_text)
         db.add_message(uid, "assistant", bot_text)
@@ -263,6 +275,8 @@ async def _handle_plan_request(event: events.NewMessage.Event, chat_id: int,
                  "planirovkalar bor — qaysi birini yuboray?")
         await _send(event, chat_id, reply)
         _save_exchange(uid, text, reply)
+        # Keyingi "2 xonali" kabi qisqa javob ham planirovka tanlovi sifatida qabul qilinadi
+        _awaiting_plan_choice[chat_id] = time.monotonic() + PLAN_CHOICE_WINDOW
         return
 
     # Xona turi aytilmagan va bir nechta xil xona turi bor — ortiqcha yubormay, so'raymiz
@@ -273,6 +287,7 @@ async def _handle_plan_request(event: events.NewMessage.Event, chat_id: int,
         reply = "\n".join(lines)
         await _send(event, chat_id, reply)
         _save_exchange(uid, text, reply)
+        _awaiting_plan_choice[chat_id] = time.monotonic() + PLAN_CHOICE_WINDOW
         return
 
     # Rasm(lar)ni yuboramiz — har tur uchun mavjud bo'lgan barcha variantlar (2D va/yoki 3D)
@@ -282,7 +297,7 @@ async def _handle_plan_request(event: events.NewMessage.Event, chat_id: int,
         info = (
             f"{l['rooms']} xonali — {l['area']:g} m² planirovka 📐\n"
             + (f"Bloklar: {blocks}\n" if blocks else "")
-            + "1 m² narxi: 1–5-qavatlar — 8 990 000 so'm, 6–9-qavatlar — 8 490 000 so'm.\n"
+            + f"1 m² narxi: {config.tariff_text()}.\n"
             "Ofisga tashrif buyursangiz, menejerlarimiz sizga loyiha haqida batafsil "
             "tushuntirib, chiroyli chegirmalar qilib berishadi 😊"
         )
@@ -314,11 +329,7 @@ async def _handle_plan_request(event: events.NewMessage.Event, chat_id: int,
         await _send(event, chat_id,
                     "Yana savol bo'lsa yozing, yoki telefon raqamingizni qoldiring — "
                     "menejerimiz siz bilan bog'lanadi. 🏠")
-        try:
-            db.add_message(uid, "user", text)
-            db.add_message(uid, "assistant", "[planirovka rasmi yuborildi]")
-        except Exception:  # noqa: BLE001
-            log.warning("Tarixni saqlashda xato", exc_info=True)
+        _save_exchange(uid, text, "[planirovka rasmi yuborildi]")
     else:
         reply = ("Kechirasiz, planirovkani yuborib bo'lmadi 🙏 Telefon raqamingizni "
                  "qoldiring — menejerimiz yuboradi.")
@@ -334,6 +345,9 @@ def _prune() -> None:
         _paused_until.pop(cid, None)
     for cid in [c for c, t in _msg_times.items() if not t or now - t[-1] > RATE_WINDOW]:
         _msg_times.pop(cid, None)
+    # Muddati o'tgan planirovka-tanlov kutishlarini olib tashlaymiz
+    for cid in [c for c, u in _awaiting_plan_choice.items() if u < now]:
+        _awaiting_plan_choice.pop(cid, None)
     # Bo'shab qolgan kutilayotgan-matn ro'yxatlarini olib tashlaymiz
     for cid in [c for c, dq in _pending_bot_texts.items() if not dq]:
         _pending_bot_texts.pop(cid, None)
@@ -371,8 +385,12 @@ async def _handle_incoming(event: events.NewMessage.Event) -> None:
         db.upsert_lead(sender.id, name=_full_name(sender), username=sender.username)
         log.info("Mijoz %s (%s): %s", _full_name(sender), sender.id, text[:80])
 
-        # Planirovka so'rovi bo'lsa — LLM emas, to'g'ridan-to'g'ri PDF yuboramiz
-        if _wants_plan(text):
+        # Planirovka so'rovi bo'lsa — LLM emas, to'g'ridan-to'g'ri rasm yuboramiz.
+        # Yoki: bot hozirgina "qaysi turini yuboray?" deb so'ragan bo'lsa, mijozning
+        # qisqa "2 xonali" javobi ham planirovka tanlovi deb qabul qilinadi.
+        awaiting = _awaiting_plan_choice.get(chat_id, 0.0) > time.monotonic()
+        if _wants_plan(text) or (awaiting and _wanted_rooms(text) is not None):
+            _awaiting_plan_choice.pop(chat_id, None)
             async with event.client.action(chat_id, "document"):
                 await _handle_plan_request(event, chat_id, sender.id, text)
             _prune()
