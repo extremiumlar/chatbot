@@ -76,6 +76,13 @@ _msg_times: dict[int, list[float]] = {}
 _awaiting_plan_choice: dict[int, float] = {}
 PLAN_CHOICE_WINDOW = 600.0   # sekund (10 daqiqa)
 
+# /debug bug-hisobot tizimi (test-menejerlar uchun): tester "/debug" deb yozsa,
+# tavsifni shu xabardan (yoki keyingi xabaridan) olib bazaga + hisobot fayliga yozamiz.
+# user_id -> muddat (monotonic): "/debug" yolg'iz kelganda keyingi xabarni kutish oynasi.
+_awaiting_bug_text: dict[int, float] = {}
+BUG_TEXT_WINDOW = 600.0      # sekund (10 daqiqa)
+BUG_REPORT_FILE = config.STORAGE_DIR / "bug_reports.md"
+
 MAX_TRACKED_USERS = 1000   # xotira o'smasligi uchun kuzatiladigan foydalanuvchilar chegarasi
 MAX_TG_LEN = 4096          # Telegram bitta xabar uzunligi chegarasi
 RATE_MAX = 20              # bitta mijozdan RATE_WINDOW ichida qabul qilinadigan maks. xabar
@@ -247,6 +254,53 @@ def _save_exchange(uid: int, user_text: str, bot_text: str) -> None:
         log.warning("Suhbatni saqlashda xato", exc_info=True)
 
 
+def _is_tester(uid: int) -> bool:
+    """Tester ro'yxati bo'sh bo'lsa /debug hamma uchun ochiq (sinov rejimi)."""
+    return not config.TESTER_IDS or uid in config.TESTER_IDS
+
+
+def _record_bug(sender: User, report: str) -> int:
+    """Bug-hisobotni DB'ga va storage/bug_reports.md ga yozadi; #N raqamini qaytaradi."""
+    name = _full_name(sender)
+    bug_id = db.add_bug_report(sender.id, name, sender.username, report)
+    stamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+    uname = f" (@{sender.username})" if sender.username else ""
+    entry = (f"\n## Bug #{bug_id} — {stamp} — {name}{uname} [id {sender.id}]\n\n"
+             f"{report.strip()}\n")
+    try:
+        new_file = not BUG_REPORT_FILE.exists()
+        with open(BUG_REPORT_FILE, "a", encoding="utf-8") as f:
+            if new_file:
+                f.write("# Nurli diyor bot — test bug-hisobotlari\n")
+            f.write(entry)
+    except Exception:  # noqa: BLE001 - fayl yozilmasa ham DB'da bor
+        log.warning("bug_reports.md ga yozishda xato", exc_info=True)
+    log.info("BUG #%d qayd etildi (%s): %.80s", bug_id, name, report)
+    return bug_id
+
+
+async def _handle_debug(event: events.NewMessage.Event, chat_id: int,
+                        sender: User, text: str) -> None:
+    """/debug oqimi: "/debug <tavsif>" — darhol yozadi; yolg'iz "/debug" —
+    tavsifni keyingi xabardan kutadi. LLM'ga YUBORILMAYDI (kvota tejaladi)."""
+    stripped = re.sub(r"^/debug\b", "", text, flags=re.IGNORECASE).strip()
+
+    if not stripped and sender.id not in _awaiting_bug_text:
+        # "/debug" yolg'iz keldi — tavsifni kutamiz
+        _awaiting_bug_text[sender.id] = time.monotonic() + BUG_TEXT_WINDOW
+        await _send(event, chat_id,
+                    "🐞 Bug tavsifini yozing (bitta xabarda): nima noto'g'ri ishladi "
+                    "va sizningcha qanday tuzatish kerak?")
+        return
+
+    report = stripped or text.strip()
+    _awaiting_bug_text.pop(sender.id, None)
+    bug_id = _record_bug(sender, report)
+    await _send(event, chat_id,
+                f"✅ Bug #{bug_id} qayd etildi. Rahmat! Davom etavering — "
+                "yangi bug topsangiz yana /debug deb yozing.")
+
+
 async def _handle_plan_request(event: events.NewMessage.Event, chat_id: int,
                                uid: int, text: str) -> None:
     """Planirovka so'rovi: backenddagi (admin yuklagan) rasmni yuboradi yoki turini so'raydi."""
@@ -348,6 +402,9 @@ def _prune() -> None:
     # Muddati o'tgan planirovka-tanlov kutishlarini olib tashlaymiz
     for cid in [c for c, u in _awaiting_plan_choice.items() if u < now]:
         _awaiting_plan_choice.pop(cid, None)
+    # Muddati o'tgan /debug tavsif-kutishlarini olib tashlaymiz
+    for uid in [u for u, t in _awaiting_bug_text.items() if t < now]:
+        _awaiting_bug_text.pop(uid, None)
     # Bo'shab qolgan kutilayotgan-matn ro'yxatlarini olib tashlaymiz
     for cid in [c for c, dq in _pending_bot_texts.items() if not dq]:
         _pending_bot_texts.pop(cid, None)
@@ -366,14 +423,22 @@ async def _handle_incoming(event: events.NewMessage.Event) -> None:
         return
 
     chat_id = event.chat_id
+    text = (event.raw_text or "").strip()
+    if not text:
+        return
+
+    # /debug — test-menejerlar bug-hisoboti. Pauza va rate-limitdan USTUN turadi:
+    # menejer test paytida chatga aralashib pauza tushirgan bo'lsa ham bug yozilsin.
+    awaiting_bug = _awaiting_bug_text.get(sender.id, 0.0) > time.monotonic()
+    if _is_tester(sender.id) and (text.lower().startswith("/debug") or awaiting_bug):
+        await _handle_debug(event, chat_id, sender, text)
+        _prune()
+        return
+
     # Menejer qo'lda gaplashayotgan bo'lsa — jim turamiz
     until = _paused_until.get(chat_id, 0.0)
     if until and time.monotonic() < until:
         log.info("Chat %s: menejer rejimida, javob berilmadi.", chat_id)
-        return
-
-    text = (event.raw_text or "").strip()
-    if not text:
         return
 
     # Bitta mijozning xabarlarini ketma-ket ishlaymiz (tarix poygasining oldini oladi)

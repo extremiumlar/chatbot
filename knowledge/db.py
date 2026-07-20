@@ -90,6 +90,16 @@ CREATE TABLE IF NOT EXISTS messages (
     created_at   TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
 
+-- Test-menejerlar /debug orqali yuborgan bug-hisobotlari.
+CREATE TABLE IF NOT EXISTS bug_reports (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    telegram_id  INTEGER NOT NULL,
+    name         TEXT,
+    username     TEXT,
+    report       TEXT NOT NULL,
+    created_at   TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_chunks_doc  ON chunks(document_id);
 CREATE INDEX IF NOT EXISTS idx_facts_cat   ON facts(category);
 CREATE INDEX IF NOT EXISTS idx_messages_tg ON messages(telegram_id, id);
@@ -269,6 +279,29 @@ def add_message(telegram_id: int, role: str, content: str) -> None:
             "INSERT INTO messages (telegram_id, role, content) VALUES (?, ?, ?)",
             (telegram_id, role, content),
         )
+
+
+# --- bug_reports (test-menejerlar /debug hisobotlari) ---
+
+def add_bug_report(telegram_id: int, name: str | None, username: str | None,
+                   report: str) -> int:
+    """Bug-hisobotni saqlaydi va uning tartib raqamini (#N) qaytaradi."""
+    with connect() as conn:
+        cur = conn.execute(
+            "INSERT INTO bug_reports (telegram_id, name, username, report) "
+            "VALUES (?, ?, ?, ?)",
+            (telegram_id, name, username, report),
+        )
+        return cur.lastrowid
+
+
+def get_bug_reports() -> list[sqlite3.Row]:
+    """Barcha bug-hisobotlar (eskidan yangiga) — yakuniy hisobot uchun."""
+    with connect() as conn:
+        return conn.execute(
+            "SELECT id, telegram_id, name, username, report, created_at "
+            "FROM bug_reports ORDER BY id"
+        ).fetchall()
 
 
 def get_recent_messages(telegram_id: int, limit: int = 8) -> list[dict]:
