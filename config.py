@@ -54,6 +54,14 @@ SESSION_PATH = STORAGE_DIR / SESSION_NAME
 # (menejer o'zi gaplashishi uchun). Daqiqalarda:
 HUMAN_TAKEOVER_MINUTES = int(os.getenv("HUMAN_TAKEOVER_MINUTES", "30"))
 
+# --- Test-menejerlar (/debug bug-hisobot tizimi) ---
+# Vergul bilan ajratilgan Telegram ID'lar: TESTER_IDS=123456,789012,345678
+# Ro'yxat BO'SH bo'lsa /debug hamma uchun ochiq (sinov rejimi).
+TESTER_IDS: frozenset[int] = frozenset(
+    int(x) for x in os.getenv("TESTER_IDS", "").replace(";", ",").split(",")
+    if x.strip().isdigit()
+)
+
 # --- LLM provayderi (bot javoblari uchun) ---
 # "gemini" yoki "anthropic". Almashtirish uchun shuni o'zgartiring (yoki .env da LLM_PROVIDER).
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "gemini")
@@ -125,6 +133,9 @@ RAG_TOP_K = int(os.getenv("RAG_TOP_K", "5"))
 RAG_MIN_SCORE = float(os.getenv("RAG_MIN_SCORE", "0.45"))
 # Gibrid qidiruvda VEKTOR ballning ulushi (qolgani kalit-so'z balli, 0..1):
 RAG_VECTOR_WEIGHT = float(os.getenv("RAG_VECTOR_WEIGHT", "0.6"))
+# Kontrast himoyasi: top-1 ball qolgan nomzodlar o'rtachasidan kamida shuncha
+# yuqori bo'lmasa (hamma ball "yopishgan"), RAG natijasi promptga qo'shilmaydi:
+RAG_MIN_CONTRAST = float(os.getenv("RAG_MIN_CONTRAST", "0.05"))
 
 # --- Chunking (bo'laklarga bo'lish) parametrlari ---
 CHUNK_SIZE = 900        # bir bo'lakdagi taxminiy belgilar soni

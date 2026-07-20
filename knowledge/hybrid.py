@@ -19,6 +19,23 @@ from knowledge.uz_synonyms import SYNONYMS
 # O'zbek apostrofining barcha ko'rinishlari bitta belgiga keltiriladi
 _APOSTROPHES = str.maketrans({"ʻ": "'", "'": "'", "'": "'", "`": "'", "‛": "'"})
 
+# O'zbek kirill -> lotin transliteratsiyasi. KB bo'laklari lotinchada, mijozlar esa
+# ko'pincha kirillда yozadi ("чегирма борми") — bu jadval ikkala yozuvni bitta
+# fazoga keltiradi, shunda kalit-so'z qatlami ham, e5 vektor ham to'g'ri solishtiradi.
+# Nozikliklar:
+#   - х→x, ҳ→h FARQLI ("хонадон"→"xonadon", "ҳужжат"→"hujjat" — KB imlosiga mos);
+#   - ц→ts ("инвестиция"→"investitsiya");
+#   - е→e — soddalashtirish (so'z boshida aslida "ye"): moslik-qidiruv uchun yetarli;
+#   - jadvalda lotin harf YO'Q — lotin matn o'zgarmaydi (oltin-to'plam regressiyasiz).
+_CYR2LAT = str.maketrans({
+    "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "ё": "yo",
+    "ж": "j", "з": "z", "и": "i", "й": "y", "к": "k", "л": "l", "м": "m",
+    "н": "n", "о": "o", "п": "p", "р": "r", "с": "s", "т": "t", "у": "u",
+    "ф": "f", "х": "x", "ц": "ts", "ч": "ch", "ш": "sh", "щ": "sh",
+    "ъ": "'", "ь": "", "ы": "i", "э": "e", "ю": "yu", "я": "ya",
+    "қ": "q", "ғ": "g'", "ў": "o'", "ҳ": "h",
+})
+
 # Juda umumiy so'zlar — moslik hisobiga kirmaydi
 _STOPWORDS = frozenset({
     "bormi", "qancha", "necha", "qanday", "qanaqa", "nima", "nimadan", "qachon",
@@ -30,8 +47,12 @@ _STOPWORDS = frozenset({
 
 
 def normalize(text: str) -> str:
-    """Kichik harf + apostrof variantlarini birlashtirish + ortiqcha bo'shliqni yig'ish."""
-    text = text.lower().translate(_APOSTROPHES)
+    """Kichik harf + apostrof birlashtirish + kirill→lotin + bo'shliqni yig'ish.
+
+    lower() transliteratsiyadan OLDIN — katta kirill harflar ham qamrab olinadi.
+    keyword_score ham so'rovni, ham bo'lakni shu funksiya orqali o'tkazadi,
+    shuning uchun transliteratsiya ikkala tomonga avtomatik simmetrik."""
+    text = text.lower().translate(_APOSTROPHES).translate(_CYR2LAT)
     return re.sub(r"\s+", " ", text).strip()
 
 
@@ -42,8 +63,22 @@ def _tokens(text: str) -> list[str]:
 
 
 def _expansions(token: str) -> list[str]:
-    """Token + uning sinonimlari (lug'atdan)."""
-    return [token] + SYNONYMS.get(token, [])
+    """Token + uning sinonimlari (lug'atdan).
+
+    Qo'shimchali so'zlar uchun prefiks-kalit qidiruvi ham bor: "pulini" lug'atda
+    yo'q, lekin "pul" kalitidan boshlanadi -> o'sha sinonimlar olinadi ("garantiyasi"
+    -> "garantiya" ham shunday). Eng UZUN mos kalit tanlanadi; kalit kamida 3 belgi
+    (token o'zi ham >=3, _tokens filtri)."""
+    hit = SYNONYMS.get(token)
+    if hit is not None:
+        return [token] + hit
+    best_key = ""
+    for key in SYNONYMS:
+        if len(key) >= 3 and len(key) > len(best_key) and token.startswith(key):
+            best_key = key
+    if best_key:
+        return [token] + SYNONYMS[best_key]
+    return [token]
 
 
 def _token_in_text(token: str, text: str) -> bool:
@@ -72,6 +107,27 @@ def keyword_score(query: str, chunk_text: str) -> float:
     return matched / len(q_tokens)
 
 
+def has_contrast(hits: list[dict], min_gap: float | None = None) -> bool:
+    """True — qidiruv haqiqatan G'OLIB topgan bo'lsa.
+
+    Top-1 ball qolgan nomzodlar O'RTACHASIDAN kamida min_gap ga yuqori bo'lishi
+    kerak. Hamma ball bir-biriga yopishgan bo'lsa (masalan kirill savolda e5
+    hammaga ~0.48 berganda) — qidiruv aslida hech narsa topmagan, RAG jim
+    turgani ma'qul (chalg'ituvchi kontekst promptga kirmasin).
+
+    min_gap default: config.RAG_MIN_CONTRAST. Nomzod bitta bo'lsa — True
+    (solishtiradigan narsa yo'q, MIN_SCORE filtri yetarli)."""
+    if min_gap is None:
+        min_gap = config.RAG_MIN_CONTRAST
+    if not hits:
+        return False
+    if len(hits) == 1:
+        return True
+    scores = sorted((h.get("score", 0.0) for h in hits), reverse=True)
+    rest_avg = sum(scores[1:]) / len(scores[1:])
+    return scores[0] - rest_avg >= min_gap
+
+
 def hybrid_search(query: str, top_k: int = 5) -> list[dict]:
     """Vektor natijalarni kalit-so'z balli bilan qayta saralaydi.
 
@@ -82,7 +138,10 @@ def hybrid_search(query: str, top_k: int = 5) -> list[dict]:
     from knowledge import vectorstore  # torch shu yerda, chaqirilgandagina yuklanadi
 
     n_cand = min(max(top_k * 3, 10), max(vectorstore.count(), 1))
-    hits = vectorstore.search(query, top_k=n_cand)
+    # Vektorga ham NORMALIZE'langan so'rov beramiz: "кафолат неча йил" e5'ga
+    # "kafolat necha yil" bo'lib boradi — lotin bo'laklar bilan bitta yozuv
+    # fazosida solishtiriladi (kirillda e5 ballari yopishib qolishining davosi).
+    hits = vectorstore.search(normalize(query), top_k=n_cand)
 
     w = config.RAG_VECTOR_WEIGHT
     for h in hits:

@@ -187,7 +187,11 @@ def _rag_context_block(question: str) -> str:
             from knowledge import hybrid
             hits = hybrid.hybrid_search(question, top_k=config.RAG_TOP_K)
             good = [h for h in hits if h.get("score", 0) >= config.RAG_MIN_SCORE]
-            if good:
+            # Kontrast-guard: ballar bir-biriga yopishgan bo'lsa (top-1 ajralib
+            # turmasa) qidiruv aslida g'olib topmagan — chalg'ituvchi bo'lakni
+            # promptga qo'shmaymiz. Kontrast TO'LIQ nomzodlar ro'yxati (hits)
+            # bo'yicha o'lchanadi, MIN_SCORE'dan o'tganlari bo'yicha emas.
+            if good and hybrid.has_contrast(hits):
                 snips = [h["text"].strip() for h in good]
                 parts.append("HUJJATLARDAN MOS QISMLAR:\n" + "\n---\n".join(snips))
     except Exception:  # noqa: BLE001
