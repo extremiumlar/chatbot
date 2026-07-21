@@ -214,6 +214,10 @@ _PLAN_WORDS = ("planirovka", "planirofka", "planirov", "planirok", "planlanirovk
                "xonadon sxema", "kvartira sxema", "uy sxema", "planirovka sxema")
 _PHOTO_WORDS = ("rasm", "surat", "foto", "photo", "fotka",
                 "расм", "сурат", "фото")
+# "Kuchsiz" plan-so'zlar: yakka holda ishonchsiz ("to'lov plani" bilan adashadi),
+# lekin UY-KONTEKSTLI so'z bilan birga kelsa planirovka so'rovi ("uy planini
+# yuboring"). Salbiy to'lov-kontekst tekshiruvi bulardan ham USTUN turadi.
+_PLAN_WEAK = ("plan", "план", "reja", "режа")
 _HOME_WORDS = ("uy", "uyni", "uyingiz", "xonadon", "kvartira", "kvartura",
                "уй", "хонадон", "квартир")
 # To'lov/kredit kontekst so'zlari (apostroflar olib tashlangan holda solishtiriladi):
@@ -230,8 +234,10 @@ def _wants_plan(text: str) -> bool:
         return False
     if any(w in t for w in _PLAN_WORDS):
         return True
-    # "uy rasmini ko'rsating" kabi — faqat uy/xonadon bilan birga bo'lsa
-    if any(w in t for w in _PHOTO_WORDS) and any(w in t for w in _HOME_WORDS):
+    # "uy rasmini ko'rsating" / "uy planini yuboring" kabi — kuchsiz so'z (rasm,
+    # plan, reja) faqat uy/xonadon so'zi bilan birga kelsa planirovka deb olinadi
+    # (to'lov-kontekst yuqorida allaqachon False qaytargan)
+    if any(w in t for w in _PHOTO_WORDS + _PLAN_WEAK) and any(w in t for w in _HOME_WORDS):
         return True
     return False
 
