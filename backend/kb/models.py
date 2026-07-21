@@ -127,7 +127,7 @@ class Fact(models.Model):
 class Lead(models.Model):
     """Botga yozgan mijoz — `leads` jadvali."""
     id = models.AutoField(primary_key=True)
-    telegram_id = models.IntegerField("Telegram ID", unique=True, null=True, blank=True)
+    telegram_id = models.BigIntegerField("Telegram ID", unique=True, null=True, blank=True)
     name = models.TextField("Ismi", null=True, blank=True)
     username = models.TextField("Username", null=True, blank=True)
     phone = models.TextField("Telefon", null=True, blank=True)
@@ -151,7 +151,7 @@ class Message(models.Model):
     ROLE_CHOICES = [("user", "Mijoz"), ("assistant", "Bot")]
 
     id = models.AutoField(primary_key=True)
-    telegram_id = models.IntegerField("Telegram ID")
+    telegram_id = models.BigIntegerField("Telegram ID")
     role = models.TextField("Kim yozgan", choices=ROLE_CHOICES)
     content = models.TextField("Matn")
     created_at = models.TextField("Vaqt", default=_now)
@@ -165,3 +165,21 @@ class Message(models.Model):
 
     def __str__(self):
         return f"{self.get_role_display()} ({self.telegram_id}): {self.content[:40]}"
+
+
+class BugReport(models.Model):
+    """Test-menejerlar /debug orqali yuborgan bug-hisobotlari (bot bazasidan, faqat o'qish)."""
+    telegram_id = models.BigIntegerField("Telegram ID")
+    name = models.CharField("Ism", max_length=200, null=True, blank=True)
+    username = models.CharField("Username", max_length=100, null=True, blank=True)
+    report = models.TextField("Hisobot")
+    created_at = models.CharField("Vaqt", max_length=32, null=True, blank=True)
+
+    class Meta:
+        managed = False               # jadvalni bot yaratadi (knowledge/db.py)
+        db_table = "bug_reports"
+        verbose_name = "Bug-hisobot (test)"
+        verbose_name_plural = "Bug-hisobotlar (test-menejerlar)"
+
+    def __str__(self) -> str:
+        return f"#{self.pk} {self.name or self.telegram_id}"

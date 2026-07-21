@@ -58,6 +58,19 @@ class PricingConfig(models.Model):
         "Ta'mir tarifi (so'm/m²)", max_digits=12, decimal_places=0,
         default=3_000_000,
         help_text="Ta'mirli variantda har m² uchun qo'shiladigan summa.")
+    # RASMIY m² tarif — YAGONA manba (bot prompti, narx-filtr, planirovka izohi
+    # hammasi /api/tariff/ orqali shu qiymatlarni oladi). O'zgartirsangiz bot
+    # ~5 daqiqada (BACKEND_CACHE_TTL) yangi tarifga o'tadi.
+    tariff_m2_low_floors = models.DecimalField(
+        "Rasmiy tarif: 1–5-qavat (so'm/m²)", max_digits=12, decimal_places=0,
+        default=8_990_000)
+    tariff_m2_high_floors = models.DecimalField(
+        "Rasmiy tarif: 6–9-qavat (so'm/m²)", max_digits=12, decimal_places=0,
+        default=8_490_000)
+    tariff_warning = models.CharField(
+        "Tarif ogohlantirishi", max_length=255, blank=True, default="",
+        help_text="Sync Uysot'dagi m² narx bilan farq topsa shu yerga yozadi "
+                  "(dashboard'da qizil ko'rinadi).")
     updated_at = models.DateTimeField("Oxirgi tahrir", auto_now=True)
 
     class Meta:

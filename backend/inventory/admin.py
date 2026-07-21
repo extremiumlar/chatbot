@@ -1,5 +1,5 @@
 from django import forms
-from django.contrib import admin
+from django.contrib import admin, messages
 from django.utils.html import format_html
 
 from .models import DiscountTier, KnowledgeSection, Layout, PricingConfig, QAEntry
@@ -7,12 +7,13 @@ from .models import DiscountTier, KnowledgeSection, Layout, PricingConfig, QAEnt
 
 @admin.register(Layout)
 class LayoutAdmin(admin.ModelAdmin):
-    list_display = ("__str__", "blocks", "available_count", "total_count",
+    list_display = ("nomi_holat", "blocks", "sotuv_holati", "total_count",
                     "image_tag", "is_active", "synced_at")
     list_filter = ("rooms", "is_active")
     list_editable = ("is_active",)
     search_fields = ("blocks", "note")
     list_per_page = 50
+    actions = ["sync_now"]
     readonly_fields = ("image_preview", "image_3d_preview", "sample_flat_id", "synced_at",
                        "created_at", "updated_at")
     fields = ("rooms", "area", "blocks", "available_count", "total_count",
@@ -21,6 +22,33 @@ class LayoutAdmin(admin.ModelAdmin):
               "planirovka_3d", "image_3d_preview",
               "is_active", "note",
               "synced_at", "created_at", "updated_at")
+
+    @admin.action(description="Hozir Uysot'dan sync qilish")
+    def sync_now(self, request, queryset):
+        """4.4: sync ENDI so'rov yo'lida avtomatik chaqirilmaydi — shu tugma yoki
+        `manage.py sync_layouts` (cron) orqali qo'lda/rejalashtirilgan ishga tushadi."""
+        from . import services
+        try:
+            summary = services.sync_all()
+        except Exception as e:  # noqa: BLE001
+            self.message_user(request, f"Sync xatosi: {e}", level=messages.ERROR)
+            return
+        self.message_user(request, summary, level=messages.SUCCESS)
+
+    @admin.display(description="Xonadon turi", ordering="rooms")
+    def nomi_holat(self, obj):
+        """Sotuvda yo'q, lekin is_active=True — QIZIL (bot bu turni endi yubormaydi,
+        admin adashmasin: yo is_active o'chirilsin, yo yangi xonadon kutilsin)."""
+        if obj.is_active and (obj.available_count or 0) <= 0:
+            return format_html('<span style="color:#c00;font-weight:600">{} — SOTILGAN</span>',
+                               str(obj))
+        return str(obj)
+
+    @admin.display(description="Sotuvda (qolgan)", ordering="available_count")
+    def sotuv_holati(self, obj):
+        if (obj.available_count or 0) <= 0:
+            return format_html('<span style="color:#c00;font-weight:600">0</span>')
+        return obj.available_count
 
     @admin.display(description="Rasm")
     def image_tag(self, obj):

@@ -1,25 +1,35 @@
 """Bot uchun JSON API — xonadon turlari, planirovka rasm URL'lari va bilim bazasi.
 Pastda: admin narx kalkulyatori (faqat xodimlar uchun)."""
+from django.conf import settings
 from django.contrib.admin.views.decorators import staff_member_required
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
 
-from . import pricing, services
+from . import pricing
+from .auth import require_bot_token
 from .models import KnowledgeSection, Layout, QAEntry
 
 
+def _abs_url(request, file_field) -> str | None:
+    """Rasm uchun to'liq URL. PUBLIC_BASE_URL sozlangan bo'lsa — o'sha domen bilan
+    (bot boshqa mashinadan ham ochadi); bo'lmasa so'rov hostidan (lokal rejim)."""
+    if not file_field:
+        return None
+    if settings.PUBLIC_BASE_URL:
+        return f"{settings.PUBLIC_BASE_URL}{file_field.url}"
+    return request.build_absolute_uri(file_field.url)
+
+
+@require_bot_token
 def layouts_api(request):
     """GET /api/layouts/ — faol xonadon turlari ro'yxati (bot shundan o'qiydi).
 
-    Har so'rovda ma'lumot eskirganini tekshiradi: LAYOUT_SYNC_TTL (default 1 soat)
-    dan qari bo'lsa — FONDA Uysot'dan qayta sync boshlanadi (javob bloklanmaydi).
-    Shu tarzda qolgan/sotilgan sonlar CRM'dan avtomatik yangilanib turadi."""
-    services.maybe_auto_sync()
+    DIQQAT: avto-sync ENDI BU YERDA EMAS (begona so'rov 257 ta Uysot chaqiruvini
+    qo'zg'atmasin) — sync `manage.py sync_layouts` (cron) yoki admin tugmasi bilan."""
     items = []
     for l in Layout.objects.filter(is_active=True):
-        img_url = request.build_absolute_uri(l.planirovka.url) if l.planirovka else None
-        img_3d_url = (request.build_absolute_uri(l.planirovka_3d.url)
-                      if l.planirovka_3d else None)
+        img_url = _abs_url(request, l.planirovka)
+        img_3d_url = _abs_url(request, l.planirovka_3d)
         items.append({
             "id": l.id,
             "rooms": l.rooms,
@@ -137,6 +147,20 @@ def price_pdf(request):
     return resp
 
 
+@require_bot_token
+def tariff_api(request):
+    """GET /api/tariff/ — rasmiy m² tarif (YAGONA manba: PricingConfig, admin tahrirlaydi).
+    Bot prompti, narx-filtri va planirovka izohlari shu qiymatlarga ergashadi."""
+    from .models import PricingConfig
+    cfg = PricingConfig.get()
+    return JsonResponse({"data": {
+        "low": int(cfg.tariff_m2_low_floors),
+        "high": int(cfg.tariff_m2_high_floors),
+        "updated_at": cfg.updated_at.isoformat() if cfg.updated_at else None,
+    }})
+
+
+@require_bot_token
 def qa_api(request):
     """GET /api/qa/ — menejerlar tasdiqlagan RASMIY savol-javoblar (faol).
 
@@ -159,6 +183,7 @@ def qa_api(request):
         json_dumps_params={"ensure_ascii": False})
 
 
+@require_bot_token
 def knowledge_api(request):
     """GET /api/knowledge/ — bilim bazasi (faol bo'limlar, tartib bilan birlashtirilgan).
 

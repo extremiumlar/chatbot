@@ -8,7 +8,7 @@ from django.urls import reverse
 from django.utils.html import escape, format_html
 from django.utils.safestring import mark_safe
 
-from .models import Chunk, Document, Fact, Lead, Message, Property
+from .models import BugReport, Chunk, Document, Fact, Lead, Message, Property
 
 CHROMA_ESLATMA = (
     "DIQQAT: bo'lak matni bu yerda tahrirlansa, semantik qidiruv (Chroma) "
@@ -187,3 +187,17 @@ class MessageAdmin(admin.ModelAdmin):
         if lookup in ("telegram_id", "telegram_id__exact"):
             return True
         return super().lookup_allowed(lookup, value, request)
+
+
+@admin.register(BugReport)
+class BugReportAdmin(admin.ModelAdmin):
+    list_display = ("id", "name", "username", "qisqa", "created_at")
+    search_fields = ("report", "name", "username")
+    ordering = ("-id",)
+
+    @admin.display(description="Hisobot")
+    def qisqa(self, obj):
+        return (obj.report or "")[:100]
+
+    def has_add_permission(self, request):
+        return False    # hisobotlar faqat botdan keladi

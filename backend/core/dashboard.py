@@ -15,7 +15,8 @@ from django.urls import reverse
 def _kb_stats() -> dict:
     """Bot bazasi (kb app) bo'yicha sonlar. Xato bo'lsa nollar."""
     out = {"leads_total": 0, "leads_today": 0, "msgs_today": 0,
-           "facts_total": 0, "docs_total": 0, "recent_leads": []}
+           "facts_total": 0, "docs_total": 0, "recent_leads": [],
+           "bugs_total": 0, "recent_bugs": []}
     try:
         from kb.models import Document, Fact, Lead, Message
         today = date.today().isoformat()
@@ -26,6 +27,12 @@ def _kb_stats() -> dict:
         out["docs_total"] = Document.objects.count()
         out["recent_leads"] = list(Lead.objects.order_by("-last_seen")[:5])
     except Exception:  # noqa: BLE001 - knowledge.db yo'q/bo'sh bo'lsa ham yiqilmaymiz
+        pass
+    try:
+        from kb.models import BugReport
+        out["bugs_total"] = BugReport.objects.count()
+        out["recent_bugs"] = list(BugReport.objects.order_by("-id")[:5])
+    except Exception:  # noqa: BLE001 - bug_reports jadvali hali yo'q bo'lishi mumkin
         pass
     return out
 
@@ -63,6 +70,7 @@ def dashboard_context() -> dict:
         "documents": reverse("admin:kb_document_changelist"),
         "layouts": reverse("admin:inventory_layout_changelist"),
         "sections": reverse("admin:inventory_knowledgesection_changelist"),
+        "bugs": reverse("admin:kb_bugreport_changelist"),
     }
     return ctx
 

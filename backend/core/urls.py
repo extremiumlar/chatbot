@@ -1,8 +1,8 @@
 """core loyihasi URL konfiguratsiyasi."""
 from django.conf import settings
-from django.conf.urls.static import static
 from django.contrib import admin
-from django.urls import include, path
+from django.urls import include, path, re_path
+from django.views.static import serve as static_serve
 
 from core import dashboard
 
@@ -21,6 +21,12 @@ urlpatterns = [
     path('api/', include('inventory.urls')),
 ]
 
-# Ishlab chiqish (DEBUG) rejimida media (yuklangan rasm)larni Django o'zi uzatadi
-if settings.DEBUG:
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+# Media (planirovka rasmlari) DEBUG'dan QAT'I NAZAR Django orqali uzatiladi.
+# ONGLI MUROSA: rasmlar kam va kichik (bir necha o'nlab planirovka) — kichik yuk
+# uchun django.views.static.serve maqbul; ilgari DEBUG=0 qilinsa rasm 404 bo'lib,
+# bot planirovka yubora olmay qolardi. Yuk oshsa deploy/nginx.conf.example dagi
+# /media/ blokini yoqib, nginx'ga o'tkazing.
+urlpatterns += [
+    re_path(r"^media/(?P<path>.*)$", static_serve,
+            {"document_root": settings.MEDIA_ROOT}),
+]

@@ -27,6 +27,8 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument("--force", action="store_true",
                             help="Mavjud bo'limlarni o'chirib, qaytadan import qiladi")
+        parser.add_argument("--yes", action="store_true",
+                            help="--force bilan birga: tasdiqlashsiz o'chiradi")
 
     def handle(self, *args, **options):
         if KnowledgeSection.objects.exists():
@@ -35,8 +37,17 @@ class Command(BaseCommand):
                     "Jadvalda bo'limlar bor. Qaytadan import: --force "
                     "(DIQQAT: admin qilgan tahrirlar o'chadi!)")
                 return
+            existing = list(KnowledgeSection.objects.values_list("title", flat=True))
+            self.stderr.write(self.style.WARNING(
+                f"DIQQAT: {len(existing)} ta bo'lim O'CHIRILADI (admin tahrirlari "
+                f"yo'qoladi): {', '.join(existing)}"))
+            if not options["yes"]:
+                self.stderr.write(
+                    "Bajarish uchun --yes ham qo'shing: "
+                    "python manage.py import_kb --force --yes")
+                return
             KnowledgeSection.objects.all().delete()
-            self.stdout.write("Eski bo'limlar o'chirildi (--force).")
+            self.stdout.write("Eski bo'limlar o'chirildi (--force --yes).")
 
         kb_dir = Path(settings.BASE_DIR).parent / "knowledge_base"
         n = 0

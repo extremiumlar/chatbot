@@ -39,8 +39,40 @@ SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-only-insecure-key-set-DJANGO_SE
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv("DJANGO_DEBUG", "1") == "1"
 
-# Lokal + kelajakdagi host uchun. Ishlab chiqarishda aniq domenlarga cheklang.
+# Lokal + kelajakdagi host uchun. Ishlab chiqarishda aniq domenlarga cheklang
+# (.env: DJANGO_ALLOWED_HOSTS=bot.example.uz,127.0.0.1).
 ALLOWED_HOSTS = os.getenv("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1,0.0.0.0").split(",")
+
+# Bot API himoyasi (inventory/auth.py). Bo'sh = himoya o'chiq (faqat lokal!).
+BOT_API_TOKEN = os.getenv("BOT_API_TOKEN", "")
+
+# Tashqi (public) bazaviy URL — bot rasm URL'larini shu domen bilan oladi
+# (bot va backend boshqa-boshqa mashinada bo'lsa majburiy). Masalan:
+# PUBLIC_BASE_URL=https://admin.nurlidiyor.uz  Bo'sh bo'lsa so'rov hostidan olinadi.
+PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
+
+# --- Production himoya tekshiruvlari (DEBUG o'chiq bo'lsa MAJBURIY) ---
+if not DEBUG:
+    from django.core.exceptions import ImproperlyConfigured
+    if SECRET_KEY == "dev-only-insecure-key-set-DJANGO_SECRET_KEY":
+        raise ImproperlyConfigured(
+            "DJANGO_SECRET_KEY .env da yo'q — production'da default kalit bilan "
+            "ishga tushirish TAQIQLANADI.")
+    if not BOT_API_TOKEN:
+        raise ImproperlyConfigured(
+            "BOT_API_TOKEN .env da yo'q — production'da API himoyasiz qolmasin.")
+    # Xavfsizlik sarlavhalari
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    X_FRAME_OPTIONS = "DENY"
+    SESSION_COOKIE_HTTPONLY = True
+    # HTTPS ortida bo'lsa yoqing (nginx TLS bilan):
+    if os.getenv("DJANGO_HTTPS", "0") == "1":
+        CSRF_COOKIE_SECURE = True
+        SESSION_COOKIE_SECURE = True
+        SECURE_HSTS_SECONDS = 60 * 60 * 24 * 30
+        SECURE_HSTS_INCLUDE_SUBDOMAINS = True   # admin.* alohida domen — xavfsiz
+        SECURE_HSTS_PRELOAD = True
+        SECURE_SSL_REDIRECT = True
 
 
 # Application definition
@@ -58,6 +90,9 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    # WhiteNoise: static fayllarni DEBUG=False da ham Django o'zi uzatadi
+    # (SecurityMiddleware'dan KEYIN, qolganidan OLDIN turishi kerak)
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -144,6 +179,14 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'   # collectstatic shu yerga yig'adi
+STATIC_ROOT.mkdir(exist_ok=True)         # WhiteNoise "papka yo'q" ogohlantirmasin
+
+# WhiteNoise: siqilgan/keshlanadigan static (DEBUG=False da ham ishlaydi)
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {"BACKEND": "whitenoise.storage.CompressedStaticFilesStorage"},
+}
 
 # Media (yuklangan planirovka rasmlari)
 MEDIA_URL = '/media/'

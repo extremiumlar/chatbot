@@ -3,9 +3,13 @@
 Ishlatilishi:
     python manage.py sync_layouts
 
-Asosiy mantiq inventory/services.py da (views dagi avto-sync ham o'shani chaqiradi).
+Cron/systemd timer bilan rejalashtiring (deploy/nurli-sync.timer namunasi) yoki
+admin panelda "Hozir sync qilish" tugmasini bosing (LayoutAdmin). ENDI so'rov
+yo'lidan (`/api/layouts/`) AVTOMATIK chaqirilmaydi (4.4-tuzatish) — begona
+so'rov Uysot'ga zanjir chaqiruvlarini boshlab yubormasin.
+
 Diqqat: yuklangan planirovka rasmi, "is_active" va "izoh" — sync TEGMAYDI.
-~220 ta so'rov qiladi (bir necha soniya).
+~47 ta so'rov qiladi (ilgari ~257 edi — N+1 muammosi hal qilindi, services.py'ga qarang).
 """
 from __future__ import annotations
 

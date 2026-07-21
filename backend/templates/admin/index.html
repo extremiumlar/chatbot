@@ -53,12 +53,17 @@
       <div class="nd-num" style="font-size:15px; padding-top:6px">
         {% if last_sync %}{{ last_sync|date:"d.m H:i" }}{% else %}—{% endif %}</div>
       <div class="nd-label">Oxirgi Uysot sync</div>
-      <div class="nd-sub">avto: 1 soatda</div>
+      <div class="nd-sub">qo'lda: "Hozir sync qilish" yoki cron</div>
     </a>
     <a class="nd-card" href="{% url 'price_calculator' %}">
       <div class="nd-num">🧮</div>
       <div class="nd-label">Narx kalkulyatori</div>
       <div class="nd-sub">Uysot bosqichlari: m² tarif, terrasa, ta'mir, chegirma, oylik</div>
+    </a>
+    <a class="nd-card" href="{{ links.bugs }}">
+      <div class="nd-num">{{ bugs_total }}</div>
+      <div class="nd-label">Bug-hisobotlar (test)</div>
+      <div class="nd-sub">/debug orqali menejerlar yuborgan</div>
     </a>
   </div>
 
@@ -74,6 +79,22 @@
       <td>{{ l.num_messages|default:0 }}</td>
       <td>{{ l.last_seen }}</td>
       <td><a href="{% url 'admin:kb_lead_change' l.pk %}">suhbatni o'qish</a></td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+
+  {% if recent_bugs %}
+  <h2 class="nd-h">Oxirgi bug-hisobotlar (test-menejerlar)</h2>
+  <table class="nd-leads">
+    <tr><th>#</th><th>Kim</th><th>Hisobot</th><th>Vaqt</th><th></th></tr>
+    {% for b in recent_bugs %}
+    <tr>
+      <td>{{ b.id }}</td>
+      <td>{{ b.name|default:b.telegram_id }}</td>
+      <td>{{ b.report|truncatechars:100 }}</td>
+      <td>{{ b.created_at }}</td>
+      <td><a href="{% url 'admin:kb_bugreport_change' b.pk %}">to'liq</a></td>
     </tr>
     {% endfor %}
   </table>
