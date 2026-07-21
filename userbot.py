@@ -79,11 +79,11 @@ _msg_times: dict[int, list[float]] = {}
 _awaiting_plan_choice: dict[int, float] = {}
 PLAN_CHOICE_WINDOW = 600.0   # sekund (10 daqiqa)
 
-# /debug bug-hisobot tizimi (test-menejerlar uchun): tester "/debug" deb yozsa,
+# /debug bug-hisobot tizimi (hamma foydalanuvchi uchun ochiq): kimdir "/debug" deb yozsa,
 # tavsifni shu xabardan (yoki keyingi xabaridan) olib bazaga + hisobot fayliga yozamiz.
 # user_id -> muddat (monotonic): "/debug" yolg'iz kelganda keyingi xabarni kutish oynasi.
 _awaiting_bug_text: dict[int, float] = {}
-# 5.3: 10 daqiqadan 3 daqiqaga qisqartirildi — tester "/debug" deb yozib, keyin
+# 5.3: 10 daqiqadan 3 daqiqaga qisqartirildi — foydalanuvchi "/debug" deb yozib, keyin
 # oddiy mijoz kabi savol berib qo'ysa, uzoq vaqt bug-kutish rejimida "qotib"
 # qolmasin (bu holat pastdagi _looks_like_question bilan ham avtomatik tuzatiladi).
 BUG_TEXT_WINDOW = 180.0       # sekund (3 daqiqa)
@@ -309,11 +309,6 @@ def _save_exchange(uid: int, user_text: str, bot_text: str) -> None:
         db.add_message(uid, "assistant", bot_text)
     except Exception:  # noqa: BLE001
         log.warning("Suhbatni saqlashda xato", exc_info=True)
-
-
-def _is_tester(uid: int) -> bool:
-    """Tester ro'yxati bo'sh bo'lsa /debug hamma uchun ochiq (sinov rejimi)."""
-    return not config.TESTER_IDS or uid in config.TESTER_IDS
 
 
 def _record_bug(sender: User, report: str) -> int:
@@ -559,10 +554,11 @@ async def _handle_incoming(event: events.NewMessage.Event) -> None:
     if not text:
         return
 
-    # /debug — test-menejerlar bug-hisoboti. Pauza va rate-limitdan USTUN turadi:
-    # menejer test paytida chatga aralashib pauza tushirgan bo'lsa ham bug yozilsin.
+    # /debug — hamma foydalanuvchi uchun ochiq bug-hisobot tizimi. Pauza va
+    # rate-limitdan USTUN turadi: menejer test paytida chatga aralashib pauza
+    # tushirgan bo'lsa ham bug yozilsin.
     awaiting_bug = _awaiting_bug_text.get(sender.id, 0.0) > time.monotonic()
-    if _is_tester(sender.id) and (text.lower().startswith("/debug") or awaiting_bug):
+    if text.lower().startswith("/debug") or awaiting_bug:
         handled = await _handle_debug(event, chat_id, sender, text)
         if handled:
             _prune()

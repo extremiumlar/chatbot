@@ -18,7 +18,6 @@ import config
 _tmp = pathlib.Path(tempfile.mkdtemp())
 config.SQLITE_PATH = _tmp / "t.db"
 config.STORAGE_DIR = _tmp
-config.TESTER_IDS = frozenset({111})
 
 import userbot
 from knowledge import db

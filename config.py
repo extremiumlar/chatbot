@@ -54,14 +54,6 @@ SESSION_PATH = STORAGE_DIR / SESSION_NAME
 # (menejer o'zi gaplashishi uchun). Daqiqalarda:
 HUMAN_TAKEOVER_MINUTES = int(os.getenv("HUMAN_TAKEOVER_MINUTES", "30"))
 
-# --- Test-menejerlar (/debug bug-hisobot tizimi) ---
-# Vergul bilan ajratilgan Telegram ID'lar: TESTER_IDS=123456,789012,345678
-# Ro'yxat BO'SH bo'lsa /debug hamma uchun ochiq (sinov rejimi).
-TESTER_IDS: frozenset[int] = frozenset(
-    int(x) for x in os.getenv("TESTER_IDS", "").replace(";", ",").split(",")
-    if x.strip().isdigit()
-)
-
 # --- LLM provayderi (bot javoblari uchun) ---
 # "gemini" yoki "anthropic". Almashtirish uchun shuni o'zgartiring (yoki .env da LLM_PROVIDER).
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "gemini")
