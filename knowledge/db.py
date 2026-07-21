@@ -125,9 +125,89 @@ def connect() -> Iterator[sqlite3.Connection]:
 
 
 def init_db() -> None:
-    """Jadvallarni yaratadi (agar mavjud bo'lmasa)."""
+    """Jadvallarni yaratadi (agar mavjud bo'lmasa) va vaqt-migratsiyasini yuritadi."""
     with connect() as conn:
         conn.executescript(SCHEMA)
+    migrate_timestamps()
+
+
+# Vaqt migratsiyasida qayta quriladigan jadvallar: {jadval: siljitiladigan ustunlar}.
+# leads.last_seen ATAYIN yo'q — u upsert_lead tomonidan allaqachon lokal vaqtda
+# yangilanib turadi; bug_reports esa boshidan to'g'ri yaratilgan.
+_MIGRATE_SHIFT_COLS: dict[str, list[str]] = {
+    "documents": ["created_at"],
+    "properties": ["created_at"],
+    "facts": ["created_at"],
+    "messages": ["created_at"],
+    "leads": ["first_seen"],
+}
+
+
+def migrate_timestamps() -> dict[str, int]:
+    """ESKI (UTC DEFAULT'li) jadvallarni lokal-vaqtli DDL'ga ko'chiradi.
+
+    Muammo: `CREATE TABLE IF NOT EXISTS` mavjud jadvalning DEFAULT'ini
+    o'zgartirmaydi — eski bazalarda `datetime('now')` (UTC) qolib, admin panelда
+    vaqtlar 5 soat orqada ko'rinardi. Bu migratsiya har jadvalni:
+      RENAME -> yangi (localtime DDL) yaratish -> ma'lumotni ko'chirish
+      (eski UTC qiymatlarga +5 soat, Asia/Tashkent) -> eski jadvalni DROP.
+    Idempotent: DDL'ida `localtime` bo'lgan jadval o'tkazib yuboriladi.
+    Hammasi bitta tranzaksiyada; xato bo'lsa rollback. Qaytaradi:
+    {jadval: ko'chirilgan qatorlar soni}."""
+    conn = sqlite3.connect(config.SQLITE_PATH, timeout=30)
+    conn.row_factory = sqlite3.Row
+    migrated: dict[str, int] = {}
+    try:
+        # PRAGMA tranzaksiya TASHQARISIDA bo'lishi shart (ichida no-op bo'ladi)
+        conn.execute("PRAGMA foreign_keys = OFF")
+        ddls = {r["name"]: (r["sql"] or "") for r in conn.execute(
+            "SELECT name, sql FROM sqlite_master WHERE type='table'")}
+        targets = [t for t in _MIGRATE_SHIFT_COLS
+                   if t in ddls and "datetime('now')" in ddls[t]
+                   and "localtime" not in ddls[t]]
+        if not targets:
+            return {}
+
+        conn.execute("BEGIN IMMEDIATE")
+        for t in targets:
+            cols = [r["name"] for r in conn.execute(f"PRAGMA table_info({t})")]
+            shift = set(_MIGRATE_SHIFT_COLS[t])
+            conn.execute(f"ALTER TABLE {t} RENAME TO {t}_old")
+            # Yangi jadval DDL'i — SCHEMA'dagi shu jadvalning o'zi
+            # (executescript ishlatmaymiz: u tranzaksiyani commit qilib yuboradi)
+            create_sql = _extract_create(t)
+            conn.execute(create_sql)
+            select_cols = ", ".join(
+                f"datetime({c}, '+5 hours')" if c in shift else c for c in cols)
+            conn.execute(
+                f"INSERT INTO {t} ({', '.join(cols)}) "
+                f"SELECT {select_cols} FROM {t}_old")
+            migrated[t] = conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+            conn.execute(f"DROP TABLE {t}_old")
+            # AUTOINCREMENT hisoblagichi buzilmasin
+            conn.execute(
+                "UPDATE sqlite_sequence SET seq = (SELECT COALESCE(MAX(id),0) "
+                f"FROM {t}) WHERE name = ?", (t,))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.close()
+    # DROP TABLE indekslarni ham o'chirgan — SCHEMA qayta yuritilib tiklanadi
+    with connect() as c2:
+        c2.executescript(SCHEMA)
+    return migrated
+
+
+def _extract_create(table: str) -> str:
+    """SCHEMA matnidan bitta jadvalning CREATE TABLE blokini ajratib oladi
+    (yagona haqiqat manbai SCHEMA bo'lib qolsin — DDL ikki joyda yashamasin)."""
+    marker = f"CREATE TABLE IF NOT EXISTS {table} ("
+    start = SCHEMA.index(marker)
+    end = SCHEMA.index(");", start) + 2
+    return SCHEMA[start:end]
 
 
 # --- documents ---
@@ -327,6 +407,7 @@ def stats() -> dict:
             "properties": count("properties"),
             "facts": count("facts"),
             "leads": count("leads"),
+            "bug_reports": count("bug_reports"),
         }
 
 

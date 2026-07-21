@@ -103,6 +103,8 @@ UYSOT_CACHE_TTL = int(os.getenv("UYSOT_CACHE_TTL", "600"))  # inventar keshi (se
 # --- Django backend (xonadon turlari + yuklangan planirovka rasmlari) ---
 BACKEND_API_URL = os.getenv("BACKEND_API_URL", "http://127.0.0.1:8010")
 BACKEND_CACHE_TTL = int(os.getenv("BACKEND_CACHE_TTL", "300"))  # sekund
+# Backend API himoya tokeni (backend bilan BIR XIL .env qatori — X-Bot-Token sarlavhasi):
+BOT_API_TOKEN = os.getenv("BOT_API_TOKEN", "")
 
 # --- Javob generatsiyasi ---
 # Faktik (narx/shart) javoblar uchun past temperatura — kamroq "ijod", ko'proq aniqlik.
@@ -115,10 +117,44 @@ TARIFF_M2_LOW_FLOORS = int(os.getenv("TARIFF_M2_LOW_FLOORS", "8990000"))    # 1-
 TARIFF_M2_HIGH_FLOORS = int(os.getenv("TARIFF_M2_HIGH_FLOORS", "8490000"))  # 6-9-qavat
 
 
+# (vaqt, (past, yuqori)) — backend /api/tariff/ keshi
+_tariff_cache = None
+
+
+def get_tariffs() -> tuple[int, int]:
+    """RASMIY m² tarif (past-qavat, yuqori-qavat). ASOSIY manba — backend
+    /api/tariff/ (admin "Narx sozlamalari"da tahrirlaydi, BACKEND_CACHE_TTL
+    keshlanadi); backend ishlamasa — .env/default qiymatlar (bot javobsiz qolmaydi).
+    Muvaffaqiyatsizlik 60s keshlanadi (har xabar 5s timeout kutmasin)."""
+    global _tariff_cache
+    import json as _json
+    import time as _time
+    import urllib.request as _ur
+    now = _time.time()
+    if _tariff_cache and now - _tariff_cache[0] < BACKEND_CACHE_TTL:
+        return _tariff_cache[1]
+    low, high = TARIFF_M2_LOW_FLOORS, TARIFF_M2_HIGH_FLOORS
+    ok = False
+    try:
+        req = _ur.Request(f"{BACKEND_API_URL}/api/tariff/")
+        if BOT_API_TOKEN:
+            req.add_header("X-Bot-Token", BOT_API_TOKEN)
+        with _ur.urlopen(req, timeout=5) as r:
+            d = _json.loads(r.read().decode("utf-8")).get("data") or {}
+        low, high = int(d.get("low") or low), int(d.get("high") or high)
+        ok = True
+    except Exception:
+        pass
+    ts = now if ok else now - max(0, BACKEND_CACHE_TTL - 60)
+    _tariff_cache = (ts, (low, high))
+    return low, high
+
+
 def tariff_text() -> str:
     """Rasmiy tarifning matnli ko'rinishi (prompt/izohlarda ishlatiladi)."""
-    low = f"{TARIFF_M2_LOW_FLOORS:,}".replace(",", " ")
-    high = f"{TARIFF_M2_HIGH_FLOORS:,}".replace(",", " ")
+    low_v, high_v = get_tariffs()
+    low = f"{low_v:,}".replace(",", " ")
+    high = f"{high_v:,}".replace(",", " ")
     return (f"1–5-qavatlar — {low} so'm/m², "
             f"6–9-qavatlar — {high} so'm/m²")
 
@@ -136,6 +172,13 @@ RAG_VECTOR_WEIGHT = float(os.getenv("RAG_VECTOR_WEIGHT", "0.6"))
 # Kontrast himoyasi: top-1 ball qolgan nomzodlar o'rtachasidan kamida shuncha
 # yuqori bo'lmasa (hamma ball "yopishgan"), RAG natijasi promptga qo'shilmaydi:
 RAG_MIN_CONTRAST = float(os.getenv("RAG_MIN_CONTRAST", "0.05"))
+# Faktlar/QA relevantlik filtri (prompt shishmasligi uchun): savolga keyword_score
+# shu chegaradan past bo'lgan yozuvlar promptga KIRMAYDI; eng ko'pi TOP_K tasi kiradi.
+# QA chegarasi ATAYIN past — QA "ustuvor manba", shubhali holatda qo'shilgani ma'qul.
+FACTS_MIN_SCORE = float(os.getenv("FACTS_MIN_SCORE", "0.25"))
+FACTS_TOP_K = int(os.getenv("FACTS_TOP_K", "8"))
+QA_MIN_SCORE = float(os.getenv("QA_MIN_SCORE", "0.15"))
+QA_TOP_K = int(os.getenv("QA_TOP_K", "8"))
 
 # --- Chunking (bo'laklarga bo'lish) parametrlari ---
 CHUNK_SIZE = 900        # bir bo'lakdagi taxminiy belgilar soni

@@ -70,9 +70,12 @@ _locks: dict[int, asyncio.Lock] = {}
 _pending_bot_texts: dict[int, deque[str]] = {}
 # Rate-limit: chat_id -> oxirgi xabarlar vaqtlari (monotonic)
 _msg_times: dict[int, list[float]] = {}
-# Bot "qaysi turining planirovkasini yuboray?" deb so'ragan chatlar:
-# chat_id -> muddat (monotonic). Shu oynada mijoz shunchaki "2 xonali" desa ham
+# Bot "qaysi turining planirovkasini yuboray?" deb so'ragan foydalanuvchilar:
+# user_id -> muddat (monotonic). Shu oynada mijoz shunchaki "2 xonali" desa ham
 # bu planirovka tanlovi deb qabul qilinadi (aks holda LLM'ga ketib adashardi).
+# 5.6: user_id bilan kalitlanadi (chat_id EMAS) — _awaiting_bug_text bilan BIR XIL
+# semantika (shaxsiy chatda chat_id == sender.id, lekin "kimga tegishli" ma'nosi
+# aniqroq bo'lishi uchun ikkalasi ham user_id ishlatadi).
 _awaiting_plan_choice: dict[int, float] = {}
 PLAN_CHOICE_WINDOW = 600.0   # sekund (10 daqiqa)
 
@@ -80,7 +83,10 @@ PLAN_CHOICE_WINDOW = 600.0   # sekund (10 daqiqa)
 # tavsifni shu xabardan (yoki keyingi xabaridan) olib bazaga + hisobot fayliga yozamiz.
 # user_id -> muddat (monotonic): "/debug" yolg'iz kelganda keyingi xabarni kutish oynasi.
 _awaiting_bug_text: dict[int, float] = {}
-BUG_TEXT_WINDOW = 600.0      # sekund (10 daqiqa)
+# 5.3: 10 daqiqadan 3 daqiqaga qisqartirildi — tester "/debug" deb yozib, keyin
+# oddiy mijoz kabi savol berib qo'ysa, uzoq vaqt bug-kutish rejimida "qotib"
+# qolmasin (bu holat pastdagi _looks_like_question bilan ham avtomatik tuzatiladi).
+BUG_TEXT_WINDOW = 180.0       # sekund (3 daqiqa)
 BUG_REPORT_FILE = config.STORAGE_DIR / "bug_reports.md"
 
 MAX_TRACKED_USERS = 1000   # xotira o'smasligi uchun kuzatiladigan foydalanuvchilar chegarasi
@@ -201,15 +207,27 @@ async def _send_file(event: events.NewMessage.Event, chat_id: int, data: bytes,
 # Mijozlar kirill yozuvida / ruscha ham yozadi — kirill variantlar ham kiritilgan.
 _PLAN_WORDS = ("planirovka", "planirofka", "planirov", "planirok", "planlanirovka",
                "layout", "chizma",
-               "планировк", "чизма", "схема", "план квартиры")
+               "планировк", "чизма", "план квартиры",
+               # "схема"/"sxema" YAKKA holda EMAS (to'lov sxemasi bilan adashadi) —
+               # faqat uy-kontekstli birikmalar ("хонадон схемаси" ichida "хонадон схема" bor):
+               "хонадон схема", "квартира схема", "уй схема", "планировка схема",
+               "xonadon sxema", "kvartira sxema", "uy sxema", "planirovka sxema")
 _PHOTO_WORDS = ("rasm", "surat", "foto", "photo", "fotka",
                 "расм", "сурат", "фото")
 _HOME_WORDS = ("uy", "uyni", "uyingiz", "xonadon", "kvartira", "kvartura",
                "уй", "хонадон", "квартир")
+# To'lov/kredit kontekst so'zlari (apostroflar olib tashlangan holda solishtiriladi):
+# bulardan biri bo'lsa savol PLANIROVKA EMAS — "to'lov sxemasi", "ipoteka sxemasi" va h.k.
+_PAYMENT_CONTEXT = ("tolov", "тулов", "тўлов", "оплат", "ипотека", "ipoteka",
+                    "кредит", "kredit", "рассрочка", "rassrochka",
+                    "муддатли", "muddatli")
 
 
 def _wants_plan(text: str) -> bool:
     t = text.lower().replace("'", "").replace("`", "").replace("ʻ", "")
+    # Salbiy kontekst: to'lov/ipoteka/kredit savoli — planirovka deb tushunilmasin
+    if any(w in t for w in _PAYMENT_CONTEXT):
+        return False
     if any(w in t for w in _PLAN_WORDS):
         return True
     # "uy rasmini ko'rsating" kabi — faqat uy/xonadon bilan birga bo'lsa
@@ -220,8 +238,11 @@ def _wants_plan(text: str) -> bool:
 
 def _wanted_rooms(text: str) -> int | None:
     """Matndan xona sonini ajratadi ("3 xonali", "2 xona", "3 хонали",
-    "2 комнатная", "2х/3х-комнатная"). "10 xonali" kabi ko'p xonali raqam ham
-    to'liq o'qiladi (aks holda "0 xonali" bo'lib qolardi)."""
+    "2 комнатная", "2х/3х-комнатная"). Regex raqamni TO'LIQ o'qiydi (masalan
+    "62 xonali" dan "62" ni, "2" emas) — shu tufayli quyidagi 1..9 chegarasi
+    "0 xonali" kabi kesilgan qiymat emas, HAQIQIY (lekin bu majmuada mavjud
+    bo'lmagan) sonni to'g'ri rad etadi. Majmuada 1–9 xonali variant bor, shuning
+    uchun undan tashqarisi (masalan "62 m2 xonadon"dagi 62) e'tiborsiz qoldiriladi."""
     t = text.lower()
     # (?<![mм\d]) — "m2"/"м2" dagi raqam xona soni emas (oldida m/м bo'lsa o'tkazamiz).
     # raqamdan keyin ruscha "2х"/"2x" ko'paytirish harfi ham kelishi mumkin
@@ -231,8 +252,44 @@ def _wanted_rooms(text: str) -> int | None:
     if not m:
         return None
     rooms = int(m.group(1))
-    # aql bovar qilmaydigan qiymat (masalan "62 m2 xonadon"dagi 62) — e'tiborsiz
     return rooms if 1 <= rooms <= 9 else None
+
+
+def _wanted_area(text: str) -> float | None:
+    """Matndan maydonni ajratadi ("62 m2", "62.8 kv", yolg'iz "62,8").
+    Bir xonali turda bir necha maydon varianti bo'lganda aniqlashtirish uchun."""
+    t = text.lower().replace(",", ".")
+    m = re.search(r"(\d{2,3}(?:\.\d+)?)\s*(?:m2|m²|м2|м²|кв|kv)", t)
+    if not m:
+        m = re.fullmatch(r"\s*(\d{2,3}(?:\.\d+)?)\s*", t)   # yolg'iz raqam ham
+    if not m:
+        return None
+    val = float(m.group(1))
+    return val if 20 <= val <= 200 else None    # aql bovar qiladigan maydon oralig'i
+
+
+async def _send_album(event: events.NewMessage.Event, chat_id: int,
+                      files: list[tuple[bytes, str]], caption: str) -> None:
+    """Bir nechta rasmni BITTA xabar (albom) qilib yuboradi — rasm-spam bo'lmasin.
+    Caption faqat birinchi rasmga beriladi; _pending_bot_texts ga bir marta yoziladi
+    (albomning matnsiz bo'laklari _handle_outgoing'da alohida hisobga olinadi)."""
+    bios = []
+    for data, name in files:
+        bio = io.BytesIO(data)
+        bio.name = name
+        bios.append(bio)
+    _mark_pending(chat_id, caption)
+    try:
+        if len(bios) == 1:
+            await event.client.send_file(chat_id, bios[0], caption=caption,
+                                         force_document=False)
+        else:
+            caps = [caption] + [""] * (len(bios) - 1)
+            await event.client.send_file(chat_id, bios, caption=caps,
+                                         force_document=False)
+    except Exception:
+        _unmark_pending(chat_id, caption)
+        raise
 
 
 def _layout_line(g: dict) -> str:
@@ -279,19 +336,66 @@ def _record_bug(sender: User, report: str) -> int:
     return bug_id
 
 
-async def _handle_debug(event: events.NewMessage.Event, chat_id: int,
-                        sender: User, text: str) -> None:
-    """/debug oqimi: "/debug <tavsif>" — darhol yozadi; yolg'iz "/debug" —
-    tavsifni keyingi xabardan kutadi. LLM'ga YUBORILMAYDI (kvota tejaladi)."""
-    stripped = re.sub(r"^/debug\b", "", text, flags=re.IGNORECASE).strip()
+# 5.3: bug-kutish holatida kelgan xabar bular bilan boshlansa yoki "?" bilan
+# tugasa — bu ehtimol oddiy mijoz savoli (test-menejer ham botni sinab, mijoz
+# rolida savol bergan bo'lishi mumkin), bug matni EMAS. Kutish avtomatik bekor
+# qilinadi va xabar odatdagi (LLM) yo'lga yuboriladi.
+_QUESTION_STARTERS = ("nima", "nimaga", "nimadan", "nechchi", "necha", "qancha",
+                     "qanday", "qanaqa", "qachon", "qayerda", "qayer", "bormi",
+                     "bo'ladimi", "boladimi", "mumkinmi", "kere", "kerak")
+_CANCEL_WORDS = ("/bekor", "/cancel")
 
-    if not stripped and sender.id not in _awaiting_bug_text:
-        # "/debug" yolg'iz keldi — tavsifni kutamiz
+
+def _looks_like_question(text: str) -> bool:
+    t = text.strip().lower()
+    if not t:
+        return False
+    if t.endswith("?"):
+        return True
+    first = t.split()[0]
+    return first in _QUESTION_STARTERS
+
+
+async def _handle_debug(event: events.NewMessage.Event, chat_id: int,
+                        sender: User, text: str) -> bool:
+    """/debug oqimi: "/debug <tavsif>" — darhol yozadi; yolg'iz "/debug" —
+    tavsifni keyingi xabardan (BUG_TEXT_WINDOW ichida) kutadi. LLM'ga
+    YUBORILMAYDI (kvota tejaladi). /bekor — kutishni qo'lda bekor qiladi.
+
+    Qaytaradi: True — xabar shu yerda "iste'mol qilindi" (chaqiruvchi qaytishi
+    kerak); False — bu aslida bug matni emas ekan (savolga o'xshaydi), kutish
+    bekor qilindi va xabar ODATDAGI (LLM) yo'lga yuborilishi kerak."""
+    stripped = re.sub(r"^/debug\b", "", text, flags=re.IGNORECASE).strip()
+    awaiting = sender.id in _awaiting_bug_text
+
+    if text.strip().lower() in _CANCEL_WORDS:
+        was_awaiting = _awaiting_bug_text.pop(sender.id, None) is not None
+        if was_awaiting:
+            await _send(event, chat_id,
+                        "Bekor qilindi. Yana bug xabar qilmoqchi bo'lsangiz /debug deb yozing.")
+        return True
+
+    if awaiting and not text.strip().lower().startswith("/debug") and _looks_like_question(text):
+        # Kutish paytida savolga o'xshash xabar keldi — bug matni emas, oddiy
+        # savol deb hisoblaymiz: kutishni bekor qilamiz va LLM yo'liga qaytaramiz
+        _awaiting_bug_text.pop(sender.id, None)
+        log.info("Chat %s: /debug kutishi bekor qilindi (savolga o'xshaydi): %.60s",
+                 chat_id, text)
+        return False
+
+    if not stripped and not awaiting:
+        # "/debug" yolg'iz keldi (birinchi marta) — tavsifni kutamiz
         _awaiting_bug_text[sender.id] = time.monotonic() + BUG_TEXT_WINDOW
         await _send(event, chat_id,
                     "🐞 Bug tavsifini yozing (bitta xabarda): nima noto'g'ri ishladi "
-                    "va sizningcha qanday tuzatish kerak?")
-        return
+                    "va sizningcha qanday tuzatish kerak? (Bekor qilish: /bekor)")
+        return True
+
+    if not stripped and awaiting:
+        # Kutish paytida yana yolg'iz "/debug" yubordi — takror so'ramaymiz,
+        # eslatib qo'yamiz (aks holda "/debug" so'zining o'zi bug matni bo'lib qolardi)
+        await _send(event, chat_id, "Bug tavsifini kutyapman — yozing (yoki /bekor).")
+        return True
 
     report = stripped or text.strip()
     _awaiting_bug_text.pop(sender.id, None)
@@ -299,38 +403,66 @@ async def _handle_debug(event: events.NewMessage.Event, chat_id: int,
     await _send(event, chat_id,
                 f"✅ Bug #{bug_id} qayd etildi. Rahmat! Davom etavering — "
                 "yangi bug topsangiz yana /debug deb yozing.")
+    return True
 
 
 async def _handle_plan_request(event: events.NewMessage.Event, chat_id: int,
                                uid: int, text: str) -> None:
-    """Planirovka so'rovi: backenddagi (admin yuklagan) rasmni yuboradi yoki turini so'raydi."""
+    """Planirovka so'rovi: SOTUVDA QOLGAN turning rasmini yuboradi.
+
+    Qoidalar: (1) sotilib bo'lgan tur rasmi YUBORILMAYDI; (2) bitta so'rovda
+    ko'pi bilan BITTA tur — 2D+3D bo'lsa albom qilib bitta xabarda; (3) bir
+    nechta variant mos kelsa rasm o'rniga aniqlashtiruvchi savol."""
     loop = asyncio.get_running_loop()
     try:
-        with_img = await loop.run_in_executor(None, backend.layouts_with_image)
+        avail = await loop.run_in_executor(None, backend.layouts_with_image)
+        all_img = await loop.run_in_executor(
+            None, lambda: backend.layouts_with_image(only_available=False))
     except Exception:  # noqa: BLE001
         log.exception("Backenddan planirovka turlarini olishda xato")
-        with_img = []
+        avail, all_img = [], []
 
     # Hech qaysi turga rasm yuklanmagan (yoki backend ishlamayapti)
-    if not with_img:
+    if not all_img:
         reply = ("Kechirasiz, planirovkalar hozir tayyor emas 🙏 Telefon raqamingizni "
                  "qoldiring — menejerimiz planirovkani yuboradi.")
         await _send(event, chat_id, reply)
         _save_exchange(uid, text, reply)
         return
 
-    rooms = _wanted_rooms(text)
-    chosen = [l for l in with_img if rooms is None or int(l["rooms"]) == rooms]
+    # Rasmlar bor, lekin HAMMA tur sotilib bo'lgan
+    if not avail:
+        reply = ("Hozir barcha xonadonlar band. Telefon raqamingizni qoldiring — "
+                 "yangi xonadon chiqishi bilan menejerimiz sizga birinchi bo'lib "
+                 "xabar beradi 😊")
+        await _send(event, chat_id, reply)
+        _save_exchange(uid, text, reply)
+        return
 
-    # So'ralgan xona turiga rasm yo'q
+    rooms = _wanted_rooms(text)
+    area = _wanted_area(text)
+    chosen = [l for l in avail if rooms is None or int(l["rooms"]) == rooms]
+    if area is not None:
+        by_area = [l for l in chosen if abs(float(l["area"]) - area) < 0.35]
+        if by_area:
+            chosen = by_area
+
+    avail_types = ", ".join(sorted({str(l["rooms"]) for l in avail}, key=int))
+
+    # So'ralgan xona turi sotuvda yo'q
     if rooms is not None and not chosen:
-        avail = ", ".join(sorted({str(l["rooms"]) for l in with_img}))
-        reply = (f"Hozircha {rooms} xonali planirovka mavjud emas. Bizda {avail} xonali "
-                 "planirovkalar bor — qaysi birini yuboray?")
+        sold_out = [l for l in all_img if int(l["rooms"]) == rooms]
+        if sold_out:  # tur mavjud edi, lekin sotilib bo'lgan
+            reply = (f"Hozircha {rooms} xonali xonadonlarimiz sotilib bo'lgan. "
+                     f"Bizda {avail_types} xonali variantlar bor — qaysi birining "
+                     "planirovkasini yuboray?")
+        else:
+            reply = (f"Hozircha {rooms} xonali planirovka mavjud emas. Bizda "
+                     f"{avail_types} xonali planirovkalar bor — qaysi birini yuboray?")
         await _send(event, chat_id, reply)
         _save_exchange(uid, text, reply)
         # Keyingi "2 xonali" kabi qisqa javob ham planirovka tanlovi sifatida qabul qilinadi
-        _awaiting_plan_choice[chat_id] = time.monotonic() + PLAN_CHOICE_WINDOW
+        _awaiting_plan_choice[uid] = time.monotonic() + PLAN_CHOICE_WINDOW
         return
 
     # Xona turi aytilmagan va bir nechta xil xona turi bor — ortiqcha yubormay, so'raymiz
@@ -341,54 +473,54 @@ async def _handle_plan_request(event: events.NewMessage.Event, chat_id: int,
         reply = "\n".join(lines)
         await _send(event, chat_id, reply)
         _save_exchange(uid, text, reply)
-        _awaiting_plan_choice[chat_id] = time.monotonic() + PLAN_CHOICE_WINDOW
+        _awaiting_plan_choice[uid] = time.monotonic() + PLAN_CHOICE_WINDOW
         return
 
-    # Rasm(lar)ni yuboramiz — har tur uchun mavjud bo'lgan barcha variantlar (2D va/yoki 3D)
-    sent_any = False
-    for l in chosen:
-        blocks = ", ".join(l.get("blocks") or [])
-        info = (
-            f"{l['rooms']} xonali — {l['area']:g} m² planirovka 📐\n"
-            + (f"Bloklar: {blocks}\n" if blocks else "")
-            + f"1 m² narxi: {config.tariff_text()}.\n"
-            "Ofisga tashrif buyursangiz, menejerlarimiz sizga loyiha haqida batafsil "
-            "tushuntirib, chiroyli chegirmalar qilib berishadi 😊"
-        )
-        # (yorliq, url, fayl-nomi-oxiri) — ikkalasi ham ixtiyoriy, mavjudini yuboramiz
-        variants = [
-            ("2D", l.get("image_url"), "2d"),
-            ("3D", l.get("image_3d_url"), "3d"),
-        ]
-        variants = [v for v in variants if v[1]]
-        for i, (label, url, suffix) in enumerate(variants):
-            try:
-                img = await loop.run_in_executor(None, backend.fetch_image, url)
-            except Exception:  # noqa: BLE001
-                log.exception("Planirovka (%s) rasmini olishda xato (id=%s)", label, l.get("id"))
-                continue
-            # Bir necha variant bo'lsa — birinchisiga to'liq izoh, keyingisiga qisqa yorliq
-            caption = info if i == 0 else f"{label} variant"
-            if len(variants) > 1 and i == 0:
-                caption = f"{info}\n({label} variant)"
-            try:
-                await _send_file(event, chat_id, img,
-                                 f"planirovka_{l['rooms']}xona_{l['area']:g}m2_{suffix}.jpg",
-                                 caption, force_document=False)  # rasm sifatida
-                sent_any = True
-            except Exception:  # noqa: BLE001
-                log.exception("Planirovka (%s) rasmini yuborishda xato", label)
-
-    if sent_any:
-        await _send(event, chat_id,
-                    "Yana savol bo'lsa yozing, yoki telefon raqamingizni qoldiring — "
-                    "menejerimiz siz bilan bog'lanadi. 🏠")
-        _save_exchange(uid, text, "[planirovka rasmi yuborildi]")
-    else:
-        reply = ("Kechirasiz, planirovkani yuborib bo'lmadi 🙏 Telefon raqamingizni "
-                 "qoldiring — menejerimiz yuboradi.")
+    # Bitta xona turi, lekin BIR NECHTA maydon varianti — rasm yubormay aniqlashtiramiz
+    if len(chosen) > 1:
+        r = chosen[0]["rooms"]
+        variants_txt = " va ".join(f"{float(l['area']):g} m²" for l in chosen)
+        reply = (f"{r} xonali xonadonlarimiz {variants_txt} variantlarida bor — "
+                 f"qaysi biri qiziqtiradi? (masalan: \"{float(chosen[0]['area']):g} m2\")")
         await _send(event, chat_id, reply)
         _save_exchange(uid, text, reply)
+        _awaiting_plan_choice[uid] = time.monotonic() + PLAN_CHOICE_WINDOW
+        return
+
+    # AYNAN BITTA tur qoldi — 2D+3D rasmlarini BITTA albom-xabar qilib yuboramiz
+    l = chosen[0]
+    blocks = ", ".join(l.get("blocks") or [])
+    caption = (
+        f"{l['rooms']} xonali — {float(l['area']):g} m² planirovka 📐\n"
+        + (f"Bloklar: {blocks}\n" if blocks else "")
+        + f"1 m² narxi: {config.tariff_text()}.\n"
+        "Ofisga tashrif buyursangiz, menejerlarimiz sizga loyiha haqida batafsil "
+        "tushuntirib, chiroyli chegirmalar qilib berishadi 😊\n\n"
+        "Yana savol bo'lsa yozing, yoki telefon raqamingizni qoldiring — "
+        "menejerimiz siz bilan bog'lanadi. 🏠"
+    )
+    files: list[tuple[bytes, str]] = []
+    for label, url, suffix in (("2D", l.get("image_url"), "2d"),
+                               ("3D", l.get("image_3d_url"), "3d")):
+        if not url:
+            continue
+        try:
+            img = await loop.run_in_executor(None, backend.fetch_image, url)
+            files.append((img, f"planirovka_{l['rooms']}xona_{float(l['area']):g}m2_{suffix}.jpg"))
+        except Exception:  # noqa: BLE001
+            log.exception("Planirovka (%s) rasmini olishda xato (id=%s)", label, l.get("id"))
+
+    if files:
+        try:
+            await _send_album(event, chat_id, files, caption)
+            _save_exchange(uid, text, "[planirovka rasmi yuborildi]")
+            return
+        except Exception:  # noqa: BLE001
+            log.exception("Planirovka albomini yuborishda xato")
+    reply = ("Kechirasiz, planirovkani yuborib bo'lmadi 🙏 Telefon raqamingizni "
+             "qoldiring — menejerimiz yuboradi.")
+    await _send(event, chat_id, reply)
+    _save_exchange(uid, text, reply)
 
 
 def _prune() -> None:
@@ -399,9 +531,9 @@ def _prune() -> None:
         _paused_until.pop(cid, None)
     for cid in [c for c, t in _msg_times.items() if not t or now - t[-1] > RATE_WINDOW]:
         _msg_times.pop(cid, None)
-    # Muddati o'tgan planirovka-tanlov kutishlarini olib tashlaymiz
-    for cid in [c for c, u in _awaiting_plan_choice.items() if u < now]:
-        _awaiting_plan_choice.pop(cid, None)
+    # Muddati o'tgan planirovka-tanlov kutishlarini olib tashlaymiz (user_id bilan)
+    for uid in [u for u, t in _awaiting_plan_choice.items() if t < now]:
+        _awaiting_plan_choice.pop(uid, None)
     # Muddati o'tgan /debug tavsif-kutishlarini olib tashlaymiz
     for uid in [u for u, t in _awaiting_bug_text.items() if t < now]:
         _awaiting_bug_text.pop(uid, None)
@@ -431,9 +563,13 @@ async def _handle_incoming(event: events.NewMessage.Event) -> None:
     # menejer test paytida chatga aralashib pauza tushirgan bo'lsa ham bug yozilsin.
     awaiting_bug = _awaiting_bug_text.get(sender.id, 0.0) > time.monotonic()
     if _is_tester(sender.id) and (text.lower().startswith("/debug") or awaiting_bug):
-        await _handle_debug(event, chat_id, sender, text)
-        _prune()
-        return
+        handled = await _handle_debug(event, chat_id, sender, text)
+        if handled:
+            _prune()
+            return
+        # handled=False: _handle_debug bu xabarni savolga o'xshab ketgani uchun
+        # bug sifatida qabul qilmadi va kutishni bekor qildi — pastdagi odatdagi
+        # (planirovka/LLM) yo'lga davom etamiz (return QILMAYMIZ).
 
     # Menejer qo'lda gaplashayotgan bo'lsa — jim turamiz
     until = _paused_until.get(chat_id, 0.0)
@@ -453,9 +589,10 @@ async def _handle_incoming(event: events.NewMessage.Event) -> None:
         # Planirovka so'rovi bo'lsa — LLM emas, to'g'ridan-to'g'ri rasm yuboramiz.
         # Yoki: bot hozirgina "qaysi turini yuboray?" deb so'ragan bo'lsa, mijozning
         # qisqa "2 xonali" javobi ham planirovka tanlovi deb qabul qilinadi.
-        awaiting = _awaiting_plan_choice.get(chat_id, 0.0) > time.monotonic()
-        if _wants_plan(text) or (awaiting and _wanted_rooms(text) is not None):
-            _awaiting_plan_choice.pop(chat_id, None)
+        awaiting = _awaiting_plan_choice.get(sender.id, 0.0) > time.monotonic()
+        if _wants_plan(text) or (awaiting and (_wanted_rooms(text) is not None
+                                               or _wanted_area(text) is not None)):
+            _awaiting_plan_choice.pop(sender.id, None)
             async with event.client.action(chat_id, "document"):
                 await _handle_plan_request(event, chat_id, sender.id, text)
             _prune()
@@ -509,6 +646,11 @@ async def _handle_outgoing(event: events.NewMessage.Event) -> None:
     chat_id = event.chat_id
     raw = event.raw_text or ""
     dq = _pending_bot_texts.get(chat_id)
+    # Albom (media group) bo'laklari: faqat birinchi rasmda caption bor, qolganlari
+    # MATNSIZ chiquvchi hodisa bo'lib keladi. Shu chatda kutilayotgan bot-matn bo'lsa,
+    # matnsiz chiquvchi xabar — bot yuborgan rasm bo'lagi, menejer emas.
+    if dq and not raw.strip():
+        return
     # Chiquvchi xabar matni bot yuborgan matnlardan biriga mos kelsa — bu bot javobi.
     # (Bir xil matnli ikki xabar — bot va menejer aynan bir xil yozsa — nazariy chekka
     #  holat; bu murosani qabul qilamiz, sanoqqa qaraganda ancha ishonchli.)

@@ -48,10 +48,15 @@ SYNONYMS: dict[str, list[str]] = {
     "bitib": ["topshiriladi", "topshirish"],
     "kere": ["kerak"],
     "qog'oz": ["hujjat", "pasport", "kadastr"],
-    "to'liymiz": ["to'lov", "to'lanadi"],
+    # "jadval" qo'shildi: to'lov-jadvali bo'limini ("oylik jadval") to'lov
+    # miqdori haqidagi boshqa bo'limlardan ("boshlang'ich to'lov") ajratish uchun
+    "to'liymiz": ["to'lov", "to'lanadi", "jadval"],
     "to'liman": ["to'lov"],
-    "to'lash": ["to'lov", "to'lanadi"],
-    "nechchi": ["qancha", "narx"],
+    "to'lash": ["to'lov", "to'lanadi", "jadval"],
+    # DIQQAT: "qancha" ATAYIN yo'q — u "chegirma" bo'limida ham uchraydi
+    # ("...to'lov qancha ko'p bo'lsa...") va "nechchi pul..." kabi to'lov
+    # savollarini noto'g'ri chegirma bo'limiga tortib ketardi (5.7 tuzatishi).
+    "nechchi": ["narx"],
     "mustahkam": ["monolit", "zilzilaga", "chidamli"],
     "moshina": ["parkovka", "avtoturargoh", "mashina"],
     "arzonlashtirib": ["chegirma"],

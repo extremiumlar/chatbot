@@ -1,10 +1,16 @@
-"""Uysot showroom (inventar) API — Nurli Diyor jonli xonadonlari.
+"""Uysot showroom API — TO'G'RIDAN-TO'G'RI Uysot bilan gaplashadigan qism.
 
-Bu API real vaqtда qaysi blokda qanday xonadon SOTUVDA (qolgan) ekanini,
-maydoni, narxi va 1 m² narxini beradi. Bot shu ma'lumot asosida aniq javob beradi.
+DIQQAT (4.3-arxitektura tuzatishi): bot javob yo'lida bu modul ENDI ISHLATILMAYDI.
+Ilgari `inventory_summary()` shu yerdan to'g'ridan-to'g'ri Uysot'ga so'rov yuborardi,
+`backend.layouts_with_image()` esa Django `Layout` jadvalidan (sync qilingan) —
+ikkalasi mustaqil manba bo'lgani uchun ba'zan mos kelmasdi (masalan jonli inventar
+"1 ta 1-xonali" desa, planirovka 3 turni yuborardi). Endi YAGONA manba —
+`uysot/backend.py::inventory_summary()` — Layout jadvalidan, planirovka bilan bir xil.
 
-Natija ~10 daqiqaga keshlanadi (har xabarда API chaqirmaslik uchun).
-API ishlamasa — bot umumiy bilim bazasiga tayanadi (jim qolmaydi).
+Bu modul (to'g'ridan-to'g'ri Uysot chaqiruvlari) diagnostika/qo'lda tekshirish
+uchun qoldirilgan (`python -m uysot.showroom`) va kelajakda PDF-planirovka
+(narx-tozalangan, `flat_plan_pdf`) muqobil yo'l sifatida ishlatilishi mumkin —
+hozircha userbot.py rasm-albom yo'lini ishlatadi (backend.layouts_with_image).
 """
 from __future__ import annotations
 

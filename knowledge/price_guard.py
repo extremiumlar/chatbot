@@ -27,17 +27,23 @@ import re
 
 import config
 
-# Rasmiy m² tarifi — YAGONA manba config.py (TARIFF_M2_*). Narx o'zgarsa faqat
-# config yangilanadi — filtr, prompt va izohlar avtomatik unga ergashadi.
-ALLOWED_TARIFF_DIGITS = frozenset({
-    str(config.TARIFF_M2_LOW_FLOORS), str(config.TARIFF_M2_HIGH_FLOORS)})
+# Rasmiy m² tarifi — YAGONA manba config.get_tariffs() (backend PricingConfig,
+# fallback .env). DIQQAT: bular FUNKSIYA — modul-darajali konstanta emas, chunki
+# admin tarifni o'zgartirsa filtr ham darhol (kesh TTL ichida) yangi tarifni
+# "ruxsat", eskisini "taqiqlangan" deb bilishi kerak.
+def _allowed_tariff_digits() -> frozenset[str]:
+    low, high = config.get_tariffs()
+    return frozenset({str(low), str(high)})
+
+
+def _allowed_mln_values() -> frozenset[float]:
+    low, high = config.get_tariffs()
+    return frozenset({round(low / 1_000_000, 2), round(high / 1_000_000, 2)})
+
+
 # Pul bo'lmagan rasmiy raqamlar (7+ xonali bo'lgani uchun filtrga tushmasin):
 # kompaniya STIR raqami (rasmiy QA javobida bor — mijoz rekvizit so'rasa aytiladi).
 ALLOWED_NON_MONEY_DIGITS = frozenset({"311781954"})
-# "mln" yozuvidagi ruxsat etilgan tarif qiymatlari (masalan 8.99 mln = 8 990 000)
-ALLOWED_MLN_VALUES = frozenset({
-    round(config.TARIFF_M2_LOW_FLOORS / 1_000_000, 2),
-    round(config.TARIFF_M2_HIGH_FLOORS / 1_000_000, 2)})
 
 # Javob almashtiriladigan xavfsiz matn (2-urinish ham leak bersa)
 SAFE_PRICE_REPLY = (
@@ -68,6 +74,8 @@ def contains_forbidden_sum(text: str) -> list[str]:
         return []
     leaks: list[str] = []
     seen_spans: list[tuple[int, int]] = []
+    allowed_digits = _allowed_tariff_digits()
+    allowed_mln = _allowed_mln_values()
 
     # 1) Guruhlangan va uzluksiz katta sonlar
     for m in list(_RE_GROUPED.finditer(text)) + list(_RE_CONTIG.finditer(text)):
@@ -80,7 +88,7 @@ def contains_forbidden_sum(text: str) -> list[str]:
         d = _digits(frag)
         if len(d) < 7:
             continue                      # kichik son — xavfsiz
-        if d in ALLOWED_TARIFF_DIGITS:
+        if d in allowed_digits:
             continue                      # rasmiy m² tarif
         if d in ALLOWED_NON_MONEY_DIGITS:
             continue                      # STIR kabi pul bo'lmagan rasmiy raqamlar
@@ -94,7 +102,7 @@ def contains_forbidden_sum(text: str) -> list[str]:
             val = float(m.group(1).replace(",", "."))
         except ValueError:
             continue
-        if val in ALLOWED_MLN_VALUES:
+        if val in allowed_mln:
             continue                      # 8.49 / 8.99 mln — tarif
         if val >= 10:
             leaks.append(m.group(0))

@@ -17,14 +17,22 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 import time
 import urllib.request
-from functools import lru_cache
 
 import config
 from knowledge import price_guard
 
 log = logging.getLogger("answer")
+
+
+def _backend_open(url: str, timeout: int = 5):
+    """Backend API so'rovi — himoya tokeni (X-Bot-Token) bilan."""
+    req = urllib.request.Request(url)
+    if config.BOT_API_TOKEN:
+        req.add_header("X-Bot-Token", config.BOT_API_TOKEN)
+    return urllib.request.urlopen(req, timeout=timeout)
 
 # Provayder klientlari (bir marta yaratiladi)
 _anthropic_client = None
@@ -44,10 +52,13 @@ _qa_cache: tuple[float, str] | None = None
 
 
 def load_knowledge() -> str:
-    """Bilim bazasi matni. ASOSIY manba — Django backend (admin panelda ko'riladi va
-    tahrirlanadi, GET /api/knowledge/); backend ishlamasa — lokal .md fayllar (zaxira).
-    BACKEND_CACHE_TTL (default 300s) keshlanadi: admin tahriri botga ~5 daqiqada yetadi,
-    oradagi javoblar esa backendga so'rovsiz, xotiradagi nusxadan ishlaydi."""
+    """Bilim bazasi matni. YAGONA HAQIQAT MANBAI — Django backend `KnowledgeSection`
+    (admin panelda tahrirlanadi, GET /api/knowledge/); `knowledge_base/*.md` endi
+    faqat AVTOMATIK ZAXIRA (backend har KnowledgeSection saqlanganda mos faylni
+    yangilab turadi — inventory/signals.py). Backend ishlamasa botga zaxiradan
+    o'qiladi, lekin bu holat ANIQ log bilan qayd etiladi (jimgina emas) va
+    keshi QISQA (60s) — backend tiklangach bot tez qaytadi. Backend ishlayotganda
+    esa BACKEND_CACHE_TTL (default 300s): admin tahriri botga ~5 daqiqada yetadi."""
     global _kb_cache
     now = time.time()
     if _kb_cache and now - _kb_cache[0] < config.BACKEND_CACHE_TTL:
@@ -56,21 +67,38 @@ def load_knowledge() -> str:
     text = ""
     try:
         url = f"{config.BACKEND_API_URL}/api/knowledge/"
-        with urllib.request.urlopen(url, timeout=5) as resp:
+        with _backend_open(url) as resp:
             payload = json.loads(resp.read().decode("utf-8")).get("data") or {}
         text = (payload.get("text") or "").strip()
     except Exception as e:  # noqa: BLE001
-        log.warning("Backend bilim bazasini olishda xato (%s) — lokal fayllarga o'tildi", e)
+        log.warning(
+            "BACKEND ISHLAMAYAPTI (%s) — zaxira knowledge_base/*.md ishlatilmoqda. "
+            "Bu matn backend'dagi so'nggi tahrirdan ESKI bo'lishi mumkin!", e)
 
     if not text:
         text = _load_knowledge_files()
+        # Muvaffaqiyatsizlikni QISQA keshlaymiz — backend tiklansa bot tezroq qaytadi
+        # (aks holda to'liq BACKEND_CACHE_TTL, ~5 daqiqa, zaxirada qolib ketardi)
+        _kb_cache = (now - max(0, config.BACKEND_CACHE_TTL - 60), text)
+        return text
     _kb_cache = (now, text)
     return text
 
 
-@lru_cache(maxsize=1)
+_kb_files_cache: tuple[float, str] | None = None   # (fayllar yig'indi mtime, matn)
+
+
 def _load_knowledge_files() -> str:
-    """Zaxira: knowledge_base/*.md fayllarni birlashtiradi (backend ishlamasa)."""
+    """Zaxira: knowledge_base/*.md fayllarni birlashtiradi (backend ishlamasa).
+
+    mtime-sezuvchan (oddiy @lru_cache emas): inventory/signals.py admin tahriri
+    bo'yicha bu fayllarni yozib turadi — eski kesh yangilanishni ko'rmay qolmasin."""
+    global _kb_files_cache
+    paths = [config.KB_DIR / name for name in config.KB_FILES]
+    mtimes = sum(p.stat().st_mtime for p in paths if p.exists())
+    if _kb_files_cache and _kb_files_cache[0] == mtimes:
+        return _kb_files_cache[1]
+
     parts: list[str] = []
     for name in config.KB_FILES:
         path = config.KB_DIR / name
@@ -81,60 +109,76 @@ def _load_knowledge_files() -> str:
             f"Bilim bazasi topilmadi: {config.KB_DIR}. "
             "knowledge_base/ ichiga .md fayl qo'ying."
         )
-    return "\n\n".join(parts)
+    text = "\n\n".join(parts)
+    _kb_files_cache = (mtimes, text)
+    return text
 
 
-def _official_qa_block() -> str:
-    """Menejerlar tasdiqlagan RASMIY savol-javoblar (backend /api/qa/).
-    Backend ishlamasa yoki bo'sh bo'lsa — bo'sh satr (bot umumiy bilimga tayanadi)."""
+def _qa_entries() -> list[dict]:
+    """Rasmiy QA yozuvlari (backend /api/qa/, keshlangan RO'YXAT ko'rinishida).
+    Backend ishlamasa — eski (stale) ro'yxat 60s ga keshlanadi (timeout to'planmasin)."""
     global _qa_cache
     now = time.time()
     if _qa_cache and now - _qa_cache[0] < config.BACKEND_CACHE_TTL:
         return _qa_cache[1]
-
-    text = ""
     try:
         url = f"{config.BACKEND_API_URL}/api/qa/"
-        with urllib.request.urlopen(url, timeout=5) as resp:
+        with _backend_open(url) as resp:
             payload = json.loads(resp.read().decode("utf-8")).get("data") or {}
         entries = payload.get("entries") or []
-        if entries:
-            lines = []
-            for e in entries:
-                extra = ""
-                if e.get("sana_sezgir") and e.get("yangilangan"):
-                    extra = f" ({e['yangilangan']} holatiga)"
-                lines.append(f"S: {e['savol']}\nJ: {e['javob']}{extra}")
-            text = (
-                "\n\n============================\n"
-                "RASMIY SAVOL-JAVOBLAR (menejerlar tasdiqlagan — USTUVOR manba)\n"
-                "============================\n"
-                "Mijozning savoli quyidagilardan biriga mos kelsa (ma'nosi bir xil "
-                "bo'lsa ham), javobni AYNAN shu tasdiqlangan javob asosida ber: "
-                "undagi barcha fakt, raqam va shartlarni O'ZGARTIRMASDAN, QO'SHMASDAN "
-                "ayt. Matn kirill yozuvida bo'lsa, lotin yozuvida ravon o'zbekchada "
-                "yetkaz, lekin mazmunni aynan saqla. Bir savolga bir nechta rasmiy "
-                "javob bo'lsa — ularni birlashtirib ber. Bu bo'lim boshqa umumiy "
-                "ma'lumotdan USTUVOR.\n\n" + "\n\n".join(lines)
-            )
     except Exception as e:  # noqa: BLE001
         log.warning("Backend /api/qa/ olishda xato: %s", e)
-        # Muvaffaqiyatsizlikni ham (eski matn bilan) 60 soniyaga keshlaymiz —
-        # aks holda backend o'chiq paytda HAR bir mijoz xabari 5s timeout kutib
-        # qolardi. 60s dan keyin qayta urinadi; tiklangach yangi ma'lumot keladi.
-        stale = _qa_cache[1] if _qa_cache else ""
+        stale = _qa_cache[1] if _qa_cache else []
         _qa_cache = (now - max(0, config.BACKEND_CACHE_TTL - 60), stale)
         return stale
+    _qa_cache = (now, entries)
+    return entries
 
-    _qa_cache = (now, text)
-    return text
+
+def _official_qa_block(question: str = "") -> str:
+    """SAVOLGA MOS rasmiy QA'largina promptga kiradi (28 tasi birdan emas —
+    prompt shishib ketmasin). Chegara ATAYIN past (QA_MIN_SCORE=0.15): QA "USTUVOR
+    manba" — shubhali holatda qo'shilgani ma'qul, tashlab yuborilgani emas.
+    Savol berilmagan/hech biri mos kelmagan bo'lsa — bo'sh satr."""
+    entries = _qa_entries()
+    if not entries:
+        return ""
+    if question:
+        from knowledge import hybrid
+        scored = sorted(
+            ((hybrid.keyword_score(question, f"{e['savol']} {e['javob']}"), e)
+             for e in entries), key=lambda x: -x[0])
+        chosen = [e for s, e in scored[:config.QA_TOP_K] if s >= config.QA_MIN_SCORE]
+    else:
+        chosen = list(entries)[:config.QA_TOP_K]
+    if not chosen:
+        return ""
+    lines = []
+    for e in chosen:
+        extra = ""
+        if e.get("sana_sezgir") and e.get("yangilangan"):
+            extra = f" ({e['yangilangan']} holatiga)"
+        lines.append(f"S: {e['savol']}\nJ: {e['javob']}{extra}")
+    return (
+        "\n\n============================\n"
+        "RASMIY SAVOL-JAVOBLAR (menejerlar tasdiqlagan — USTUVOR manba)\n"
+        "============================\n"
+        "Mijozning savoli quyidagilardan biriga mos kelsa (ma'nosi bir xil "
+        "bo'lsa ham), javobni AYNAN shu tasdiqlangan javob asosida ber: "
+        "undagi barcha fakt, raqam va shartlarni O'ZGARTIRMASDAN, QO'SHMASDAN "
+        "ayt. Matn kirill yozuvida bo'lsa, lotin yozuvida ravon o'zbekchada "
+        "yetkaz, lekin mazmunni aynan saqla. Bir savolga bir nechta rasmiy "
+        "javob bo'lsa — ularni birlashtirib ber. Bu bo'lim boshqa umumiy "
+        "ma'lumotdan USTUVOR.\n\n" + "\n\n".join(lines)
+    )
 
 
 def _live_inventory_block() -> str:
-    """Jonli inventar (showroom API) bo'limi. API ishlamasa bo'sh qaytadi."""
+    """Jonli inventar bo'limi — backend Layout jadvalidan (planirovka oqimi bilan
+    BIR XIL manba, ziddiyat bo'lmasin). Backend ishlamasa bo'sh qaytadi."""
     try:
-        from uysot import showroom
-        text = showroom.inventory_summary()
+        from uysot import backend as uysot_backend
+        text = uysot_backend.inventory_summary()
     except Exception:  # noqa: BLE001
         text = ""
     if not text:
@@ -163,18 +207,33 @@ def _rag_context_block(question: str) -> str:
         return ""
     parts: list[str] = []
 
-    # 1) Faktlar — kichik, hammasini qo'shamiz (Claude ajratgan aniq savol-javoblar)
+    # 1) Faktlar — SAVOLGA MOS keluvchilarigina (hammasi birdan emas: prompt
+    # shishmasin, savolga aloqasiz fakt modelni chalg'itmasin).
     try:
         from knowledge import db
         facts = db.get_all_facts()
         if facts:
-            fl = []
+            from knowledge import hybrid, pii
+            scored = []
             for f in facts:
                 q = (f["question"] or "").strip()
+                full = f"{q} {f['answer']}"
+                # PII himoyasi: bazada eski telefonli fakt qolgan bo'lsa ham chiqmasin
+                if pii.contains_phone(full):
+                    log.warning("Telefonli fakt promptdan chiqarildi: %.60s", f["answer"])
+                    continue
+                s = hybrid.keyword_score(question, full)
+                if s >= config.FACTS_MIN_SCORE:
+                    scored.append((s, f, q))
+            scored.sort(key=lambda x: -x[0])
+            fl = []
+            for s, f, q in scored[:config.FACTS_TOP_K]:
                 cat = f"[{f['category']}] " if f["category"] else ""
                 qline = f"S: {q}\n" if q else ""
                 fl.append(f"{cat}{qline}J: {f['answer']}")
-            parts.append("FAKTLAR:\n" + "\n\n".join(fl))
+            log.debug("RAG faktlar: %d dan %d tasi savolga mos", len(facts), len(fl))
+            if fl:
+                parts.append("FAKTLAR (savolga mos):\n" + "\n\n".join(fl))
     except Exception:  # noqa: BLE001
         log.warning("RAG faktlarni o'qishda xato", exc_info=True)
 
@@ -276,7 +335,7 @@ ammo bosim o'tkazmasdan. Ozgina emoji ishlatsang bo'ladi.
 ============================
 BILIM BAZASI
 ============================
-{load_knowledge()}{_official_qa_block()}{_live_inventory_block()}{_rag_context_block(question)}"""
+{load_knowledge()}{_official_qa_block(question)}{_live_inventory_block()}{_rag_context_block(question)}"""
 
 
 # --------------------------------------------------------------------------
@@ -309,7 +368,7 @@ def _answer_gemini(question: str, history: list[dict] | None) -> str:
     # System prompt (showroom API keshi + RAG qidiruvni o'z ichiga oladi) — QIMMAT.
     # Uni sikldan OLDIN BIR MARTA quramiz; zanjirda har modelda qayta qurmaymiz.
     base_cfg = dict(
-        system_instruction=_system_prompt(question),
+        system_instruction=_cached_system_prompt(question),
         max_output_tokens=1024,
         temperature=config.MODEL_TEMPERATURE,
     )
@@ -372,7 +431,7 @@ def _answer_anthropic(question: str, history: list[dict] | None) -> str:
         model=config.MODEL_CHAT,
         max_tokens=1024,
         temperature=config.MODEL_TEMPERATURE,
-        system=_system_prompt(question),
+        system=_cached_system_prompt(question),
         messages=messages,
     )
     return "".join(b.text for b in resp.content if b.type == "text").strip()
@@ -380,12 +439,11 @@ def _answer_anthropic(question: str, history: list[dict] | None) -> str:
 
 # --------------------------------------------------------------------------
 
-# Narx-filtr leak topganda qayta urinishda savolga ilova qilinadigan qattiq eslatma
-_PRICE_RETRY_NOTE = (
-    "\n\n[TIZIM ESLATMASI: javobingda HECH QANDAY umumiy summa raqamini yozma — "
-    f"faqat m² tarifni ({config.tariff_text()}) ayt va aniq hisob-kitob uchun "
-    "ofisga yo'naltir.]"
-)
+def _price_retry_note() -> str:
+    """Narx-filtr retry eslatmasi (funksiya — tarif o'zgarsa matn ham yangilanadi)."""
+    return ("\n\n[TIZIM ESLATMASI: javobingda HECH QANDAY umumiy summa raqamini "
+            f"yozma — faqat m² tarifni ({config.tariff_text()}) ayt va aniq "
+            "hisob-kitob uchun ofisga yo'naltir.]")
 
 
 def _generate(question: str, history: list[dict] | None) -> str:
@@ -396,6 +454,21 @@ def _generate(question: str, history: list[dict] | None) -> str:
     if provider == "anthropic":
         return _answer_anthropic(question, history)
     raise RuntimeError(f"Noma'lum LLM_PROVIDER: {config.LLM_PROVIDER} (gemini yoki anthropic)")
+
+
+# answer() ichida qurilgan system promptni retry uchun QAYTA ISHLATISH kanali.
+# threading.local — chunki answer() userbot'da parallel executor-threadlarda
+# yuradi; oddiy global bo'lsa ikki mijoz prompti aralashib ketardi.
+_tls = threading.local()
+
+
+def _cached_system_prompt(question: str) -> str:
+    """answer() qurib qo'ygan promptni qaytaradi; bo'lmasa (masalan provayder
+    to'g'ridan-to'g'ri chaqirilganda) yangidan quradi."""
+    cached = getattr(_tls, "sys_prompt", None)
+    if cached is not None:
+        return cached
+    return _system_prompt(question)
 
 
 def answer(question: str, history: list[dict] | None = None) -> str:
@@ -409,20 +482,29 @@ def answer(question: str, history: list[dict] | None = None) -> str:
     to'lov miqdori va h.k.) topilsa — BIR marta qattiq eslatma bilan qayta
     so'raladi; u ham leak bersa — xavfsiz tayyor matn yuboriladi. Bu himoya
     prompt qoidalaridan mustaqil ishlaydi (model nima demoqchi bo'lishidan
-    qat'i nazar summa mijozga yetib bormaydi)."""
-    reply = _generate(question, history)
-    leaks = price_guard.contains_forbidden_sum(reply)
-    if not leaks:
-        return reply
+    qat'i nazar summa mijozga yetib bormaydi).
 
-    log.warning("Narx-filtr ushladi (1-urinish): %s — qayta so'ralmoqda", leaks)
-    reply = _generate(question + _PRICE_RETRY_NOTE, history)
-    leaks = price_guard.contains_forbidden_sum(reply)
-    if not leaks:
-        return reply
+    TEJAMKORLIK: system prompt (bilim bazasi + QA + inventar + RAG qidiruv) BIR
+    marta quriladi va narx-filtr retry'sida QAYTA ISHLATILADI — ilgari retry butun
+    RAG qidiruvni va showroom keshini qayta chaqirib, xarajatni 2x qilardi."""
+    _tls.sys_prompt = _system_prompt(question)
+    log.debug("System prompt hajmi: %d belgi", len(_tls.sys_prompt))
+    try:
+        reply = _generate(question, history)
+        leaks = price_guard.contains_forbidden_sum(reply)
+        if not leaks:
+            return reply
 
-    log.warning("Narx-filtr ushladi (2-urinish ham): %s — xavfsiz matn yuborildi", leaks)
-    return price_guard.SAFE_PRICE_REPLY
+        log.warning("Narx-filtr ushladi (1-urinish): %s — qayta so'ralmoqda", leaks)
+        reply = _generate(question + _price_retry_note(), history)
+        leaks = price_guard.contains_forbidden_sum(reply)
+        if not leaks:
+            return reply
+
+        log.warning("Narx-filtr ushladi (2-urinish ham): %s — xavfsiz matn yuborildi", leaks)
+        return price_guard.SAFE_PRICE_REPLY
+    finally:
+        _tls.sys_prompt = None
 
 
 if __name__ == "__main__":

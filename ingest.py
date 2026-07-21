@@ -129,6 +129,13 @@ def _understand(doc_id: int, pages: list[str]) -> None:
         if data.get("summary"):
             summaries.append(data["summary"])
         for fact in data.get("facts", []):
+            # PII himoyasi: telefon raqamli fakt bazaga YOZILMAYDI (masalan
+            # pudratchi/loyihachi raqami PDF'dan fakt bo'lib kirib qolmasin)
+            from knowledge import pii
+            fact_text = f"{fact.get('question') or ''} {fact['answer']}"
+            if pii.contains_phone(fact_text):
+                print(f"\n  ⚠  TELEFONLI fakt o'tkazib yuborildi: {fact['answer'][:60]}")
+                continue
             db.add_fact(doc_id, fact.get("category", "umumiy"),
                         fact.get("question"), fact["answer"])
             n_facts += 1
