@@ -1,0 +1,12 @@
+# systemd timer — Uysot inventar sync (har soatda; cron o'rniga)
+# Juftlik: nurli-sync.service (pastdagi) + shu timer.
+# sudo systemctl enable --now nurli-sync.timer
+[Unit]
+Description=Uysot layout sync (soatlik)
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1h
+
+[Install]
+WantedBy=timers.target

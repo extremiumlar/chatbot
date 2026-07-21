@@ -56,7 +56,9 @@ def tariff_present(text: str) -> bool:
         or "8,99" in text or "8,49" in text
 
 
-def main() -> None:
+def main() -> bool:
+    """True qaytaradi — barcha 6 tuzoq toza va 2 nazorat buzilmagan bo'lsa
+    (pytest ko'prigi shu qiymatga qarab exit-kod beradi)."""
     rows = []
     for q, kind in ADVERSARIAL + CONTROL:
         _events.clear()
@@ -110,6 +112,8 @@ def main() -> None:
         print(f"  S: {q}")
         print(f"  J: {reply[:220].replace(chr(10), ' ')}")
 
+    return ok_all and c1 and c2
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(0 if main() else 1)

@@ -1,0 +1,4 @@
+# Ishlab chiqish/test bog'liqliklari (production'da shart emas).
+# O'rnatish: .venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+pytest>=8.0.0
+pytest-django>=4.8.0

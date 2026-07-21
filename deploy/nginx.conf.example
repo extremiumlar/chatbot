@@ -1,0 +1,22 @@
+# nginx reverse-proxy namunasi — backend (admin + bot API)
+# /etc/nginx/sites-available/nurli -> sites-enabled simlink
+server {
+    listen 80;
+    server_name admin.nurlidiyor.uz;   # <- o'z domeningiz
+
+    client_max_body_size 20m;          # planirovka rasm yuklash uchun
+
+    location / {
+        proxy_pass http://127.0.0.1:8010;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Yuk oshsa media'ni nginx'dan uzatish (Django serve o'rniga):
+    # location /media/ {
+    #     alias /opt/nurli/chatbot/backend/media/;
+    #     expires 7d;
+    # }
+}
+# HTTPS: certbot --nginx bilan sertifikat oling, keyin .env da DJANGO_HTTPS=1

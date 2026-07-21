@@ -1,0 +1,20 @@
+# systemd unit — Django backend (admin panel + bot API)
+# Talab: pip install gunicorn (requirements'ga qo'shilgan emas — serverda o'rnating)
+[Unit]
+Description=Nurli Diyor Django backend (admin + bot API)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/nurli/chatbot/backend
+EnvironmentFile=/opt/nurli/chatbot/.env
+Environment=DJANGO_DEBUG=0
+ExecStart=/opt/nurli/chatbot/.venv/bin/gunicorn core.wsgi:application --bind 127.0.0.1:8010 --workers 2
+Restart=always
+RestartSec=5
+User=nurli
+Group=nurli
+
+[Install]
+WantedBy=multi-user.target

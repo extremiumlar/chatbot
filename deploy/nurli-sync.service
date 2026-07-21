@@ -1,0 +1,9 @@
+[Unit]
+Description=Uysot layout sync (bir martalik yurish)
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/nurli/chatbot/backend
+EnvironmentFile=/opt/nurli/chatbot/.env
+ExecStart=/opt/nurli/chatbot/.venv/bin/python manage.py sync_layouts
+User=nurli

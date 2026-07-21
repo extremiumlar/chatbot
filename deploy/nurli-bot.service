@@ -1,0 +1,21 @@
+# systemd unit — Telegram userbot (Linux server uchun namuna)
+# O'rnatish: sudo cp deploy/nurli-bot.service /etc/systemd/system/
+#            sudo systemctl daemon-reload && sudo systemctl enable --now nurli-bot
+[Unit]
+Description=Nurli Diyor Telegram sotuv-boti (userbot)
+After=network-online.target nurli-backend.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/nurli/chatbot
+EnvironmentFile=/opt/nurli/chatbot/.env
+ExecStart=/opt/nurli/chatbot/.venv/bin/python userbot.py
+Restart=always
+RestartSec=5
+# Telethon sessiya va SQLite fayllari uchun yozish huquqi kerak
+User=nurli
+Group=nurli
+
+[Install]
+WantedBy=multi-user.target
