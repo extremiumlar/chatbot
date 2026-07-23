@@ -1,0 +1,27 @@
+# RAG'siz (torch/chromadb'siz) muhit uchun — masalan disk kvotasi chegaralangan
+# shared hosting (cPanel). requirements.txt bilan bir xil, faqat quyidagilar
+# YO'Q: chromadb/sentence-transformers (RAG, torch tortadi, ~1GB+), telethon/
+# cryptg/python-telegram-bot (Telegram userbot — production'da Instagram
+# webhook bilan almashtirilgan, deploy/README.md'ga qarang).
+#
+# RAG_ENABLED=0 bo'lganda (.env) knowledge/answer.py semantik qidiruvni
+# butunlay chetlab o'tadi — bu paketlar o'rnatilmasa ham bot to'liq ishlaydi
+# (bilim bazasi + jonli inventar + Facts, hammasi torch'siz).
+
+# --- Core (LLM provayderlar) ---
+google-genai>=1.0.0
+anthropic>=0.40.0
+python-dotenv>=1.0.1
+
+# --- PDF / matn o'qish ---
+pdfplumber>=0.11.4
+pypdf>=5.1.0
+pymupdf>=1.26
+
+# --- Backend (Django admin: xonadon turlari + planirovka rasm yuklash) ---
+django>=5.0
+pillow>=10.0
+
+# --- Yordamchi ---
+tqdm>=4.67.0
+whitenoise>=6.6

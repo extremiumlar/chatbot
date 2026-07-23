@@ -202,9 +202,12 @@ def _rag_context_block(question: str) -> str:
 
     DIQQAT: bu yerga faqat UMUMIY hujjatlar (narx, shartnoma shartlari, hudud)
     ingest qilinishi kerak — aynan bir mijozning shaxsiy shartnomasi EMAS, aks holda
-    shaxsiy ma'lumot javobga chiqib ketishi mumkin."""
-    if not config.RAG_ENABLED:
-        return ""
+    shaxsiy ma'lumot javobga chiqib ketishi mumkin.
+
+    Faktlar (#1, pastda) RAG_ENABLED'ga BOG'LIQ EMAS — sof kalit-so'z qidiruv
+    (torch/embedding kerak emas), shuning uchun RAG (semantik qidiruv, #2) o'chiq
+    bo'lsa ham ishlayveradi. Faqat #2 — chromadb/torch talab qiladigan semantik
+    qidiruv — RAG_ENABLED bilan boshqariladi."""
     parts: list[str] = []
 
     # 1) Faktlar — SAVOLGA MOS keluvchilarigina (hammasi birdan emas: prompt
@@ -238,23 +241,28 @@ def _rag_context_block(question: str) -> str:
         log.warning("RAG faktlarni o'qishda xato", exc_info=True)
 
     # 2) Gibrid qidiruv (vektor + kalit so'z) — savolga eng mos hujjat bo'laklari.
-    # has_data() embedding modelini yuklamaydi; ma'lumot bo'lsagina qidiruv (torch) ishlaydi.
-    # RAG_MIN_SCORE gibrid YAKUNIY ballga qo'llanadi (vektor*W + kalit_so'z*(1-W)).
-    try:
-        from knowledge import vectorstore
-        if vectorstore.has_data():
-            from knowledge import hybrid
-            hits = hybrid.hybrid_search(question, top_k=config.RAG_TOP_K)
-            good = [h for h in hits if h.get("score", 0) >= config.RAG_MIN_SCORE]
-            # Kontrast-guard: ballar bir-biriga yopishgan bo'lsa (top-1 ajralib
-            # turmasa) qidiruv aslida g'olib topmagan — chalg'ituvchi bo'lakni
-            # promptga qo'shmaymiz. Kontrast TO'LIQ nomzodlar ro'yxati (hits)
-            # bo'yicha o'lchanadi, MIN_SCORE'dan o'tganlari bo'yicha emas.
-            if good and hybrid.has_contrast(hits):
-                snips = [h["text"].strip() for h in good]
-                parts.append("HUJJATLARDAN MOS QISMLAR:\n" + "\n---\n".join(snips))
-    except Exception:  # noqa: BLE001
-        log.warning("RAG semantik qidiruvda xato", exc_info=True)
+    # Bu qism torch/chromadb talab qiladi — shuning uchun (faktlardan farqli)
+    # RAG_ENABLED=0 bo'lsa butunlay o'tkazib yuboriladi (vectorstore/hybrid hatto
+    # import qilinmaydi — kichik/RAG'siz muhitda bu paketlar o'rnatilmagan bo'lishi
+    # mumkin). has_data() embedding modelini yuklamaydi; ma'lumot bo'lsagina qidiruv
+    # (torch) ishlaydi. RAG_MIN_SCORE gibrid YAKUNIY ballga qo'llanadi
+    # (vektor*W + kalit_so'z*(1-W)).
+    if config.RAG_ENABLED:
+        try:
+            from knowledge import vectorstore
+            if vectorstore.has_data():
+                from knowledge import hybrid
+                hits = hybrid.hybrid_search(question, top_k=config.RAG_TOP_K)
+                good = [h for h in hits if h.get("score", 0) >= config.RAG_MIN_SCORE]
+                # Kontrast-guard: ballar bir-biriga yopishgan bo'lsa (top-1 ajralib
+                # turmasa) qidiruv aslida g'olib topmagan — chalg'ituvchi bo'lakni
+                # promptga qo'shmaymiz. Kontrast TO'LIQ nomzodlar ro'yxati (hits)
+                # bo'yicha o'lchanadi, MIN_SCORE'dan o'tganlari bo'yicha emas.
+                if good and hybrid.has_contrast(hits):
+                    snips = [h["text"].strip() for h in good]
+                    parts.append("HUJJATLARDAN MOS QISMLAR:\n" + "\n---\n".join(snips))
+        except Exception:  # noqa: BLE001
+            log.warning("RAG semantik qidiruvda xato", exc_info=True)
 
     if not parts:
         return ""
