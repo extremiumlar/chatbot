@@ -42,13 +42,23 @@ for _p in (RAW_DIR, STORAGE_DIR, CHROMA_DIR):
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")  # (eski) BotFather bot uchun
 
-# --- Telegram AKKAUNT (userbot / Telethon) ---
+# --- Telegram AKKAUNT (userbot / Telethon) — eskirgan, Instagramga o'tildi ---
 # my.telegram.org -> API development tools dan olinadi:
 TELEGRAM_API_ID = os.getenv("TELEGRAM_API_ID", "")
 TELEGRAM_API_HASH = os.getenv("TELEGRAM_API_HASH", "")
 # Sessiya fayli (bir marta login qilingach, qayta kod so'ralmaydi):
 SESSION_NAME = os.getenv("TELEGRAM_SESSION", "userbot")
 SESSION_PATH = STORAGE_DIR / SESSION_NAME
+
+# --- Instagram Messaging (rasmiy Meta Graph API) ---
+# developers.facebook.com -> App -> Instagram mahsuloti sozlamalaridan olinadi:
+INSTAGRAM_APP_SECRET = os.getenv("INSTAGRAM_APP_SECRET", "")
+INSTAGRAM_PAGE_ACCESS_TOKEN = os.getenv("INSTAGRAM_PAGE_ACCESS_TOKEN", "")
+# Webhook sozlashda o'zingiz o'ylab topgan tasodifiy satr (Meta shu orqali GET so'rovda tekshiradi):
+INSTAGRAM_VERIFY_TOKEN = os.getenv("INSTAGRAM_VERIFY_TOKEN", "")
+# graph.facebook.com/<PAGE_ID>?fields=instagram_business_account dan olinadi:
+INSTAGRAM_BUSINESS_ACCOUNT_ID = os.getenv("INSTAGRAM_BUSINESS_ACCOUNT_ID", "")
+INSTAGRAM_GRAPH_API_VERSION = os.getenv("INSTAGRAM_GRAPH_API_VERSION", "v21.0")
 
 # Odam qo'lda javob yozsa, o'sha suhbatda avtomatik javobni shu muddatga to'xtatadi
 # (menejer o'zi gaplashishi uchun). Daqiqalarda:

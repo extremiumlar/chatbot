@@ -11,12 +11,20 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 import os
+import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Repo ildizini ham sys.path'ga qo'shamiz: Instagram webhook (ig_bot/views.py) shu
+# Django jarayonida ishlaydi va repo ildizidagi bot mantig'ini (instagram_bot.py,
+# config.py, knowledge/, uysot/) TO'G'RIDAN-TO'G'RI import qiladi — Telegram (alohida
+# polling jarayoni) dan farqli, Meta webhook'i tabiiy ravishda shu web-server ichida
+# qabul qilinadi, alohida jarayon/port shart emas.
+sys.path.insert(0, str(BASE_DIR.parent))
 
 # Loyiha ildizidagi .env (bot bilan bir xil) — Uysot tokeni shu yerda
 load_dotenv(BASE_DIR.parent / ".env")
@@ -86,6 +94,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'inventory',
     'kb',        # bot bilim bazasi (storage/knowledge.db) — admin orqali ko'rish/tahrirlash
+    'ig_bot',    # Instagram Messaging webhook (/api/instagram/webhook/)
 ]
 
 MIDDLEWARE = [

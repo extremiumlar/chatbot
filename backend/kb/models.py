@@ -127,7 +127,7 @@ class Fact(models.Model):
 class Lead(models.Model):
     """Botga yozgan mijoz — `leads` jadvali."""
     id = models.AutoField(primary_key=True)
-    telegram_id = models.BigIntegerField("Telegram ID", unique=True, null=True, blank=True)
+    external_id = models.BigIntegerField("Kanal ID (Instagram)", unique=True, null=True, blank=True)
     name = models.TextField("Ismi", null=True, blank=True)
     username = models.TextField("Username", null=True, blank=True)
     phone = models.TextField("Telefon", null=True, blank=True)
@@ -143,7 +143,7 @@ class Lead(models.Model):
         ordering = ["-last_seen"]
 
     def __str__(self):
-        return self.name or self.username or f"Lid {self.telegram_id}"
+        return self.name or self.username or f"Lid {self.external_id}"
 
 
 class Message(models.Model):
@@ -151,7 +151,7 @@ class Message(models.Model):
     ROLE_CHOICES = [("user", "Mijoz"), ("assistant", "Bot")]
 
     id = models.AutoField(primary_key=True)
-    telegram_id = models.BigIntegerField("Telegram ID")
+    external_id = models.BigIntegerField("Kanal ID (Instagram)")
     role = models.TextField("Kim yozgan", choices=ROLE_CHOICES)
     content = models.TextField("Matn")
     created_at = models.TextField("Vaqt", default=_now)
@@ -164,12 +164,12 @@ class Message(models.Model):
         ordering = ["-id"]
 
     def __str__(self):
-        return f"{self.get_role_display()} ({self.telegram_id}): {self.content[:40]}"
+        return f"{self.get_role_display()} ({self.external_id}): {self.content[:40]}"
 
 
 class BugReport(models.Model):
     """Test-menejerlar /debug orqali yuborgan bug-hisobotlari (bot bazasidan, faqat o'qish)."""
-    telegram_id = models.BigIntegerField("Telegram ID")
+    external_id = models.BigIntegerField("Kanal ID (Instagram)")
     name = models.CharField("Ism", max_length=200, null=True, blank=True)
     username = models.CharField("Username", max_length=100, null=True, blank=True)
     report = models.TextField("Hisobot")
@@ -182,4 +182,4 @@ class BugReport(models.Model):
         verbose_name_plural = "Bug-hisobotlar (test-menejerlar)"
 
     def __str__(self) -> str:
-        return f"#{self.pk} {self.name or self.telegram_id}"
+        return f"#{self.pk} {self.name or self.external_id}"

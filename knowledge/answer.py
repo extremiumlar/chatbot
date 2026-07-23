@@ -447,13 +447,31 @@ def _price_retry_note() -> str:
 
 
 def _generate(question: str, history: list[dict] | None) -> str:
-    """Tanlangan provayderdan xom javob oladi (filtrsiz)."""
+    """Tanlangan provayderdan xom javob oladi (filtrsiz).
+
+    ZAXIRA (avtomatik, IKKI TOMONLAMA): asosiy provayder ishlamay qolsa (Gemini —
+    GEMINI_MODELS zanjiridagi BARCHA modellar kvota/xato bilan tugasa; Claude —
+    API xatosi bo'lsa) va boshqa provayderning kaliti mavjud bo'lsa, bot avtomatik
+    o'sha provayderga o'tadi — mijoz javobsiz qolmaydi."""
     provider = config.LLM_PROVIDER.lower()
     if provider == "gemini":
-        return _answer_gemini(question, history)
-    if provider == "anthropic":
-        return _answer_anthropic(question, history)
-    raise RuntimeError(f"Noma'lum LLM_PROVIDER: {config.LLM_PROVIDER} (gemini yoki anthropic)")
+        primary, primary_name = _answer_gemini, "Gemini"
+        fallback, fallback_name, fallback_key = _answer_anthropic, "Claude", config.ANTHROPIC_API_KEY
+    elif provider == "anthropic":
+        primary, primary_name = _answer_anthropic, "Claude"
+        fallback, fallback_name, fallback_key = _answer_gemini, "Gemini", config.GEMINI_API_KEY
+    else:
+        raise RuntimeError(f"Noma'lum LLM_PROVIDER: {config.LLM_PROVIDER} (gemini yoki anthropic)")
+
+    try:
+        return primary(question, history)
+    except Exception as e:  # noqa: BLE001
+        if not fallback_key:
+            raise
+        log.warning(
+            "%s ishlamadi (%s) — zaxira sifatida %s'ga o'tilmoqda",
+            primary_name, e, fallback_name)
+        return fallback(question, history)
 
 
 # answer() ichida qurilgan system promptni retry uchun QAYTA ISHLATISH kanali.

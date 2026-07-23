@@ -70,9 +70,10 @@ CREATE TABLE IF NOT EXISTS facts (
 );
 
 -- Lidlar — botga yozgan mijozlar (sotuv bo'limi keyin bog'lanadi).
+-- external_id: kanal foydalanuvchi ID'si (ilgari faqat Telegram, endi Instagram-scoped ID).
 CREATE TABLE IF NOT EXISTS leads (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    telegram_id  INTEGER UNIQUE,
+    external_id  INTEGER UNIQUE,
     name         TEXT,
     username     TEXT,
     phone        TEXT,
@@ -84,7 +85,7 @@ CREATE TABLE IF NOT EXISTS leads (
 -- Suhbat tarixi — bot qayta ishga tushsa ham kontekst yo'qolmasligi uchun doimiy saqlanadi.
 CREATE TABLE IF NOT EXISTS messages (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    telegram_id  INTEGER NOT NULL,
+    external_id  INTEGER NOT NULL,
     role         TEXT NOT NULL,      -- 'user' | 'assistant'
     content      TEXT NOT NULL,
     created_at   TEXT NOT NULL DEFAULT (datetime('now','localtime'))
@@ -93,7 +94,7 @@ CREATE TABLE IF NOT EXISTS messages (
 -- Test-menejerlar /debug orqali yuborgan bug-hisobotlari.
 CREATE TABLE IF NOT EXISTS bug_reports (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    telegram_id  INTEGER NOT NULL,
+    external_id  INTEGER NOT NULL,
     name         TEXT,
     username     TEXT,
     report       TEXT NOT NULL,
@@ -102,7 +103,7 @@ CREATE TABLE IF NOT EXISTS bug_reports (
 
 CREATE INDEX IF NOT EXISTS idx_chunks_doc  ON chunks(document_id);
 CREATE INDEX IF NOT EXISTS idx_facts_cat   ON facts(category);
-CREATE INDEX IF NOT EXISTS idx_messages_tg ON messages(telegram_id, id);
+CREATE INDEX IF NOT EXISTS idx_messages_tg ON messages(external_id, id);
 """
 
 
@@ -125,10 +126,42 @@ def connect() -> Iterator[sqlite3.Connection]:
 
 
 def init_db() -> None:
-    """Jadvallarni yaratadi (agar mavjud bo'lmasa) va vaqt-migratsiyasini yuritadi."""
+    """Jadvallarni yaratadi (agar mavjud bo'lmasa) va migratsiyalarni yuritadi."""
     with connect() as conn:
         conn.executescript(SCHEMA)
     migrate_timestamps()
+    migrate_platform_id()
+
+
+# Telegramdan Instagramga o'tish: eski jadvallarda ustun hali `telegram_id` nomida
+# qolgan bo'lishi mumkin — bir martalik, idempotent ko'chirish.
+_PLATFORM_ID_TABLES = ("leads", "messages", "bug_reports")
+
+
+def migrate_platform_id() -> list[str]:
+    """`telegram_id` ustunini `external_id`ga ko'chiradi (mavjud bo'lsa).
+
+    SQLite `RENAME COLUMN` bog'liq indekslarni ham avtomatik yangilaydi.
+    Idempotent: ustun allaqachon `external_id` bo'lsa, jadval o'tkazib yuboriladi.
+    Qaytaradi: ko'chirilgan jadvallar ro'yxati."""
+    conn = sqlite3.connect(config.SQLITE_PATH, timeout=30)
+    conn.row_factory = sqlite3.Row
+    migrated: list[str] = []
+    try:
+        for t in _PLATFORM_ID_TABLES:
+            cols = [r["name"] for r in conn.execute(f"PRAGMA table_info({t})")]
+            if not cols:              # jadval hali yaratilmagan (yangi baza)
+                continue
+            if "telegram_id" in cols and "external_id" not in cols:
+                conn.execute(f"ALTER TABLE {t} RENAME COLUMN telegram_id TO external_id")
+                migrated.append(t)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    return migrated
 
 
 # Vaqt migratsiyasida qayta quriladigan jadvallar: {jadval: siljitiladigan ustunlar}.
@@ -326,51 +359,51 @@ def get_all_properties(limit: int = 100) -> list[sqlite3.Row]:
 
 # --- leads (botga yozgan mijozlar) ---
 
-def upsert_lead(telegram_id: int, name: str | None = None,
+def upsert_lead(external_id: int, name: str | None = None,
                 username: str | None = None, phone: str | None = None) -> None:
     """Lidni qo'shadi yoki mavjudini yangilaydi. Har xabarda hisoblagichni oshiradi."""
     with connect() as conn:
         conn.execute(
-            """INSERT INTO leads (telegram_id, name, username, phone, num_messages)
+            """INSERT INTO leads (external_id, name, username, phone, num_messages)
                VALUES (?, ?, ?, ?, 1)
-               ON CONFLICT(telegram_id) DO UPDATE SET
+               ON CONFLICT(external_id) DO UPDATE SET
                  name = COALESCE(excluded.name, leads.name),
                  username = COALESCE(excluded.username, leads.username),
                  phone = COALESCE(excluded.phone, leads.phone),
                  last_seen = datetime('now','localtime'),
                  num_messages = leads.num_messages + 1""",
-            (telegram_id, name, username, phone),
+            (external_id, name, username, phone),
         )
 
 
-def get_lead(telegram_id: int) -> sqlite3.Row | None:
+def get_lead(external_id: int) -> sqlite3.Row | None:
     with connect() as conn:
         return conn.execute(
-            "SELECT * FROM leads WHERE telegram_id = ?", (telegram_id,)
+            "SELECT * FROM leads WHERE external_id = ?", (external_id,)
         ).fetchone()
 
 
 # --- messages (suhbat tarixi — doimiy) ---
 
-def add_message(telegram_id: int, role: str, content: str) -> None:
+def add_message(external_id: int, role: str, content: str) -> None:
     """Bitta suhbat xabarini saqlaydi (bot qayta ishga tushsa ham kontekst qoladi)."""
     with connect() as conn:
         conn.execute(
-            "INSERT INTO messages (telegram_id, role, content) VALUES (?, ?, ?)",
-            (telegram_id, role, content),
+            "INSERT INTO messages (external_id, role, content) VALUES (?, ?, ?)",
+            (external_id, role, content),
         )
 
 
 # --- bug_reports (test-menejerlar /debug hisobotlari) ---
 
-def add_bug_report(telegram_id: int, name: str | None, username: str | None,
+def add_bug_report(external_id: int, name: str | None, username: str | None,
                    report: str) -> int:
     """Bug-hisobotni saqlaydi va uning tartib raqamini (#N) qaytaradi."""
     with connect() as conn:
         cur = conn.execute(
-            "INSERT INTO bug_reports (telegram_id, name, username, report) "
+            "INSERT INTO bug_reports (external_id, name, username, report) "
             "VALUES (?, ?, ?, ?)",
-            (telegram_id, name, username, report),
+            (external_id, name, username, report),
         )
         return cur.lastrowid
 
@@ -379,19 +412,19 @@ def get_bug_reports() -> list[sqlite3.Row]:
     """Barcha bug-hisobotlar (eskidan yangiga) — yakuniy hisobot uchun."""
     with connect() as conn:
         return conn.execute(
-            "SELECT id, telegram_id, name, username, report, created_at "
+            "SELECT id, external_id, name, username, report, created_at "
             "FROM bug_reports ORDER BY id"
         ).fetchall()
 
 
-def get_recent_messages(telegram_id: int, limit: int = 8) -> list[dict]:
+def get_recent_messages(external_id: int, limit: int = 8) -> list[dict]:
     """Foydalanuvchining oxirgi `limit` ta xabarini tartib bilan qaytaradi
     ([{"role":..., "content":...}]). answer.answer() kutgan formatda."""
     with connect() as conn:
         rows = conn.execute(
-            "SELECT role, content FROM messages WHERE telegram_id = ? "
+            "SELECT role, content FROM messages WHERE external_id = ? "
             "ORDER BY id DESC LIMIT ?",
-            (telegram_id, limit),
+            (external_id, limit),
         ).fetchall()
     return [{"role": r["role"], "content": r["content"]} for r in reversed(rows)]
 

@@ -91,7 +91,7 @@
     {% for b in recent_bugs %}
     <tr>
       <td>{{ b.id }}</td>
-      <td>{{ b.name|default:b.telegram_id }}</td>
+      <td>{{ b.name|default:b.external_id }}</td>
       <td>{{ b.report|truncatechars:100 }}</td>
       <td>{{ b.created_at }}</td>
       <td><a href="{% url 'admin:kb_bugreport_change' b.pk %}">to'liq</a></td>

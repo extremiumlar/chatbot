@@ -109,30 +109,30 @@ class PropertyAdmin(admin.ModelAdmin):
 
 @admin.register(Lead)
 class LeadAdmin(admin.ModelAdmin):
-    list_display = ("id", "telegram_id", "name", "username", "phone",
+    list_display = ("id", "external_id", "name", "username", "phone",
                     "num_messages", "first_seen", "last_seen", "suhbat")
-    search_fields = ("name", "username", "phone", "telegram_id")
+    search_fields = ("name", "username", "phone", "external_id")
     readonly_fields = ("first_seen", "last_seen", "num_messages", "suhbat_korinishi")
-    fields = ("telegram_id", "name", "username", "phone",
+    fields = ("external_id", "name", "username", "phone",
               "first_seen", "last_seen", "num_messages", "suhbat_korinishi")
     ordering = ("-last_seen",)
     list_per_page = 50
 
     @admin.display(description="Suhbati")
     def suhbat(self, obj):
-        if obj.telegram_id is None:
+        if obj.external_id is None:
             return "—"
         url = reverse("admin:kb_message_changelist")
-        return format_html('<a href="{}?telegram_id__exact={}">xabarlari</a>',
-                           url, obj.telegram_id)
+        return format_html('<a href="{}?external_id__exact={}">xabarlari</a>',
+                           url, obj.external_id)
 
     @admin.display(description="Suhbat (oxirgi 50 xabar)")
     def suhbat_korinishi(self, obj):
         """Lid sahifasining o'zida suhbatni chat ko'rinishida o'qish
         (Message ro'yxatiga o'tmasdan). Eskidan yangiga tartibda."""
-        if obj.telegram_id is None:
+        if obj.external_id is None:
             return "—"
-        msgs = list(Message.objects.filter(telegram_id=obj.telegram_id)
+        msgs = list(Message.objects.filter(external_id=obj.external_id)
                     .order_by("-id")[:50])[::-1]
         if not msgs:
             return "Hali xabar yo'q."
@@ -159,15 +159,15 @@ class LeadAdmin(admin.ModelAdmin):
             '<div style="max-height:460px;overflow-y:auto;border:1px solid #ddd;'
             'border-radius:8px;padding:8px 10px;background:#fff">'
             + "".join(bubbles) + "</div>"
-            + f'<p style="margin-top:6px"><a href="{full_url}?telegram_id__exact='
-              f'{obj.telegram_id}">Barcha xabarlarini ochish →</a></p>')
+            + f'<p style="margin-top:6px"><a href="{full_url}?external_id__exact='
+              f'{obj.external_id}">Barcha xabarlarini ochish →</a></p>')
 
 
 @admin.register(Message)
 class MessageAdmin(admin.ModelAdmin):
-    list_display = ("id", "telegram_id", "kim", "matn_qisqa", "created_at")
+    list_display = ("id", "external_id", "kim", "matn_qisqa", "created_at")
     list_filter = ("role",)
-    search_fields = ("content", "=telegram_id")
+    search_fields = ("content", "=external_id")
     readonly_fields = ("created_at",)
     ordering = ("-id",)
     list_per_page = 100
@@ -183,8 +183,8 @@ class MessageAdmin(admin.ModelAdmin):
         return _qisqa(obj.content, 120)
 
     def lookup_allowed(self, lookup, value, request=None):
-        # Lid sahifasidagi "xabarlari" havolasi ?telegram_id__exact=... bilan keladi
-        if lookup in ("telegram_id", "telegram_id__exact"):
+        # Lid sahifasidagi "xabarlari" havolasi ?external_id__exact=... bilan keladi
+        if lookup in ("external_id", "external_id__exact"):
             return True
         return super().lookup_allowed(lookup, value, request)
 
