@@ -52,6 +52,8 @@ def _run_script(rel_path: str, extra_args: list[str] | None = None,
     "tests/test_stage1.py",
     "tests/test_stage4.py",
     "tests/test_stage5_debug.py",
+    "tests/test_instagram_webhook.py",
+    "tests/test_multi_session.py",
 ])
 def test_offline_script(script: str) -> None:
     """Har bir standalone skript o'zining ICHKI check()/assert mantig'i bo'yicha

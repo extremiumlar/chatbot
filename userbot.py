@@ -24,11 +24,13 @@ Xususiyatlar:
 """
 from __future__ import annotations
 
+import argparse
 import asyncio
 import io
 import logging
 import re
 import time
+import zlib
 from collections import deque
 from datetime import datetime, timedelta, timezone
 from logging.handlers import RotatingFileHandler
@@ -40,18 +42,29 @@ import config
 from knowledge import answer, db
 from uysot import backend, showroom
 
-# Loglar konsolga HAM faylga yoziladi (storage/userbot.log, 2MB dan aylanadi) —
+# Loglar konsolga HAM faylga yoziladi (storage/userbot.log yoki bir nechta
+# akkaunt ishlatilsa storage/userbot_<sessiya>.log, 2MB dan aylanadi) —
 # konsol oynasi yopilsa ham "nega javob bermadi?" ni keyin tekshirish mumkin.
-logging.basicConfig(
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    level=logging.INFO,
-    handlers=[
-        logging.StreamHandler(),
-        RotatingFileHandler(config.STORAGE_DIR / "userbot.log",
-                            maxBytes=2_000_000, backupCount=3, encoding="utf-8"),
-    ],
-)
+# DIQQAT: handlerlar bu yerda EMAS, main() ichida (--session argumenti
+# o'qilgandan KEYIN) ulanadi — shunda har akkaunt o'z faylига yozadi va bir
+# nechta jarayon BITTA log faylini bir vaqtda ochib, yozuvlarni aralashtirmaydi.
 log = logging.getLogger("userbot")
+
+
+def _setup_logging(session_name: str) -> None:
+    """Har sessiya (akkaunt) uchun alohida log fayl. Asosiy ("userbot") sessiya
+    eski nomni saqlaydi (userbot.log) — orqaga moslik, hech narsa buzilmaydi."""
+    suffix = "" if session_name == config.SESSION_NAME else f"_{session_name}"
+    log_path = config.STORAGE_DIR / f"userbot{suffix}.log"
+    logging.basicConfig(
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        level=logging.INFO,
+        handlers=[
+            logging.StreamHandler(),
+            RotatingFileHandler(log_path, maxBytes=2_000_000, backupCount=3, encoding="utf-8"),
+        ],
+        force=True,   # userbot.py qayta import qilinadigan holatlarda (masalan testda) ham to'g'ri ulaydi
+    )
 
 # Jarayon boshlangan payt (UTC) — catch-up qayta o'ynatgan ESKI chiquvchi xabarlarni
 # jonli menejer xabaridan ajratish uchun (pastda _handle_outgoing ga qarang).
@@ -670,43 +683,106 @@ async def _handle_outgoing(event: events.NewMessage.Event) -> None:
 _lock_socket = None
 
 
-def _acquire_single_instance_lock() -> None:
-    """Bir vaqtda faqat BITTA userbot ishlashini kafolatlaydi.
-    Ikkinchi nusxa ishga tushmaydi — ikki marta javob va kvota isrofining oldini oladi."""
+# Eski (yagona akkaunt) qulf porti — orqaga moslik uchun asosiy ("userbot")
+# sessiya aynan shu portni ishlatadi. Boshqa har bir sessiya nomidan
+# DETERMINISTIK (crc32) hosil qilingan alohida portga bog'lanadi — shu bilan
+# BIR XIL sessiya ikki marta ishga tushmaydi, LEKIN turli sessiyalar (bir nechta
+# menejer lichkasi) bemalol PARALLEL ishlaydi.
+_DEFAULT_LOCK_PORT = 47654
+_LOCK_PORT_BASE = 47700
+_LOCK_PORT_RANGE = 300
+
+
+def _lock_port_for_session(session_name: str) -> int:
+    if session_name == config.SESSION_NAME:
+        return _DEFAULT_LOCK_PORT
+    return _LOCK_PORT_BASE + (zlib.crc32(session_name.encode("utf-8")) % _LOCK_PORT_RANGE)
+
+
+def _acquire_single_instance_lock(session_name: str) -> None:
+    """Bir vaqtda BIR XIL sessiya (akkaunt) uchun faqat BITTA jarayon ishlashini
+    kafolatlaydi — ikki marta javob va kvota isrofining oldini oladi. Turli
+    sessiya nomlari (--session bilan) mustaqil portlarga bog'lanadi, shuning
+    uchun bir nechta akkaunt (lichka) parallel ishlashi mumkin."""
     global _lock_socket
     import socket
+    port = _lock_port_for_session(session_name)
     _lock_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
-        _lock_socket.bind(("127.0.0.1", 47654))
+        _lock_socket.bind(("127.0.0.1", port))
     except OSError:
         raise SystemExit(
-            "❌ Userbot allaqachon ishlab turibdi (boshqa nusxa ochiq).\n"
+            f"❌ '{session_name}' sessiyasi allaqachon ishlab turibdi (boshqa nusxa ochiq).\n"
             "   Ikki nusxa = ikki marta javob + kvota isrofi.\n"
-            "   Avval eski oynani yoping, keyin qaytadan ishga tushiring."
+            "   Avval eski oynani yoping, keyin qaytadan ishga tushiring.\n"
+            "   (Boshqa akkaunt qo'shmoqchi bo'lsangiz: start.bat <sessiya_nomi>)"
         )
 
 
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Nurli diyor Telegram userbot (bir nechta akkaunt qo'llab-quvvatlanadi)")
+    parser.add_argument(
+        "--session", default=None,
+        help="Sessiya (akkaunt) nomi. Bir nechta menejer lichkasini ulash uchun "
+             "har biriga turli nom bering, masalan --session shahnoza. "
+             "Berilmasa .env dagi TELEGRAM_SESSION (default: userbot) ishlatiladi.")
+    return parser.parse_args()
+
+
+def _resolve_credentials(session_name: str) -> tuple[str, str]:
+    """Sessiyaga XOS api_id/api_hash bo'lsa o'shani, bo'lmasa umumiy
+    TELEGRAM_API_ID/HASH ni qaytaradi.
+
+    Nomlash: TELEGRAM_API_ID_<SESSIYA> / TELEGRAM_API_HASH_<SESSIYA> (sessiya
+    nomi KATTA HARFDA, harf/raqamdan boshqa belgilar "_" ga almashtiriladi).
+    Masalan --session shahnoza uchun .env'da:
+        TELEGRAM_API_ID_SHAHNOZA=...
+        TELEGRAM_API_HASH_SHAHNOZA=...
+    Bu ixtiyoriy — har akkaunt uchun alohida my.telegram.org ilovasi
+    yaratilgan bo'lsa ishlatiladi (bitta ilova bir nechta akkaunt uchun ham
+    ishlayveradi — o'shanda bu maxsus qiymatlar kerak emas, umumiy ishlatiladi)."""
+    import os
+    key = re.sub(r"[^A-Z0-9]", "_", session_name.upper())
+    api_id = os.getenv(f"TELEGRAM_API_ID_{key}") or config.TELEGRAM_API_ID
+    api_hash = os.getenv(f"TELEGRAM_API_HASH_{key}") or config.TELEGRAM_API_HASH
+    return api_id, api_hash
+
+
 def main() -> None:
-    _acquire_single_instance_lock()
+    args = _parse_args()
+    session_name = args.session or config.SESSION_NAME
+    session_path = config.STORAGE_DIR / session_name
+    api_id, api_hash = _resolve_credentials(session_name)
+
+    _setup_logging(session_name)
+    _acquire_single_instance_lock(session_name)
 
     if config.LLM_PROVIDER == "gemini" and not config.GEMINI_API_KEY:
         raise SystemExit("GEMINI_API_KEY .env da yo'q.")
     if config.LLM_PROVIDER == "anthropic" and not config.ANTHROPIC_API_KEY:
         raise SystemExit("ANTHROPIC_API_KEY .env da yo'q.")
-    if not config.TELEGRAM_API_ID or not config.TELEGRAM_API_HASH:
+    if not api_id or not api_hash:
         raise SystemExit(
-            "TELEGRAM_API_ID / TELEGRAM_API_HASH .env da yo'q. "
-            "https://my.telegram.org -> API development tools dan oling."
+            f"TELEGRAM_API_ID/HASH topilmadi ('{session_name}' sessiyasi uchun ham, "
+            "umumiy sozlamada ham). https://my.telegram.org -> API development "
+            "tools dan oling.\n"
+            "(Bitta api_id/api_hash BIR NECHTA akkaunt uchun ishlataveradi; har "
+            "akkaunt o'z ilovasiga ega bo'lishini xohlasangiz — "
+            f"TELEGRAM_API_ID_{session_name.upper()}/TELEGRAM_API_HASH_{session_name.upper()} "
+            "ni .env'ga qo'shing.)"
         )
 
     db.init_db()
     # Bilim bazasi yuklanishini oldindan tekshiramiz (xato bo'lsa darrov ko'rinadi)
     log.info("Bilim bazasi: %d belgi", len(answer.load_knowledge()))
+    if session_name != config.SESSION_NAME:
+        log.info("Sessiya: '%s' (storage/%s.session)", session_name, session_name)
 
     client = TelegramClient(
-        str(config.SESSION_PATH),
-        int(config.TELEGRAM_API_ID),
-        config.TELEGRAM_API_HASH,
+        str(session_path),
+        int(api_id),
+        api_hash,
         # Uzilib qayta ulanganda, o'sha oraliqda kelgan xabarlarni tiklaydi:
         catch_up=True,
         # Ulanish uzilsa cheksiz qayta urinsin (jarayon o'lmasin):

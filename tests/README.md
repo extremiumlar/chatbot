@@ -38,6 +38,8 @@ BIRON-BIR o'zgartirish kiritilmagan, ikkala rejim ham ishlaydi.
 | `test_stage1.py` | 1-bosqich: sotilgan-planirovka filtri, albom-yuborish, "схема" so'zi ajratilishi, telefon-PII filtri | Yo'q | `python tests\test_stage1.py` |
 | `test_stage4.py` | 4-bosqich: `backend.inventory_summary()` — Layout jadvalidan qurilishi, narxsizlik | Yo'q | `python tests\test_stage4.py` |
 | `test_stage5_debug.py` | 5-bosqich: `/debug` oynasi (3 daqiqa), savol-aniqlash, `/bekor`, `_awaiting_plan_choice` kalitlash | Yo'q | `python tests\test_stage5_debug.py` |
+| `test_instagram_webhook.py` | Instagram webhook (`instagram_bot.py`): imzo tekshiruvi, GET tasdiqlash, mid-dedup, `is_echo` orqali inson-qo'lga-olish pauzasi | Yo'q (Graph API/LLM mock'langan) | `python tests\test_instagram_webhook.py` |
+| `test_multi_session.py` | Ko'p-akkaunt (bir nechta Telegram lichka): sessiya nomidan port hosil qilish, bir xil sessiya bloklanishi/turli sessiya parallel ishlashi, `--session` argumenti | Yo'q (lokal TCP-socket qulf) | `python tests\test_multi_session.py` |
 | `test_pytest_bridge.py` | Yuqoridagilarni **pytest** orqali bitta buyruq bilan yuritadi (subprocess ko'prigi) | Aralash (`live` marker bilan ajratilgan) | `pytest` yoki `pytest -m "not live"` |
 | `backend/inventory/tests/test_sync.py` | 4.4-bosqich: Uysot sync N+1 kamayishi (so'rov soni ≤15) va muvaffaqiyatsizlik-backoff | Yo'q (mock'langan) | `cd backend && ..\.venv\Scripts\python.exe manage.py test inventory.tests.test_sync` |
 
