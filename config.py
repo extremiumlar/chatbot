@@ -129,20 +129,16 @@ def get_tariffs() -> tuple[int, int]:
     keshlanadi); backend ishlamasa — .env/default qiymatlar (bot javobsiz qolmaydi).
     Muvaffaqiyatsizlik 60s keshlanadi (har xabar 5s timeout kutmasin)."""
     global _tariff_cache
-    import json as _json
     import time as _time
-    import urllib.request as _ur
+
+    import backend_client
     now = _time.time()
     if _tariff_cache and now - _tariff_cache[0] < BACKEND_CACHE_TTL:
         return _tariff_cache[1]
     low, high = TARIFF_M2_LOW_FLOORS, TARIFF_M2_HIGH_FLOORS
     ok = False
     try:
-        req = _ur.Request(f"{BACKEND_API_URL}/api/tariff/")
-        if BOT_API_TOKEN:
-            req.add_header("X-Bot-Token", BOT_API_TOKEN)
-        with _ur.urlopen(req, timeout=5) as r:
-            d = _json.loads(r.read().decode("utf-8")).get("data") or {}
+        d = backend_client.get_json(f"{BACKEND_API_URL}/api/tariff/").get("data") or {}
         low, high = int(d.get("low") or low), int(d.get("high") or high)
         ok = True
     except Exception:

@@ -6,24 +6,15 @@ Backend ishlamasa — bo'sh ro'yxat qaytadi (bot planirovkani "menejer yuboradi"
 """
 from __future__ import annotations
 
-import json
 import logging
 import time
-import urllib.request
 
+import backend_client
 import config
 
 log = logging.getLogger("backend")
 
 _cache: dict[str, tuple[float, object]] = {}
-
-
-def _open(url: str, timeout: int):
-    """Backend so'rovi — himoya tokeni (X-Bot-Token) bilan."""
-    req = urllib.request.Request(url)
-    if config.BOT_API_TOKEN:
-        req.add_header("X-Bot-Token", config.BOT_API_TOKEN)
-    return urllib.request.urlopen(req, timeout=timeout)
 
 
 def get_layouts(force: bool = False) -> list[dict]:
@@ -36,8 +27,7 @@ def get_layouts(force: bool = False) -> list[dict]:
         return hit[1]  # type: ignore[return-value]
     try:
         url = f"{config.BACKEND_API_URL}/api/layouts/"
-        with _open(url, timeout=10) as resp:
-            data = json.loads(resp.read().decode("utf-8")).get("data") or []
+        data = backend_client.get_json(url, timeout=10).get("data") or []
     except Exception as e:  # noqa: BLE001
         log.warning("Backend layouts olishда xato: %s", e)
         data = []
@@ -66,8 +56,7 @@ def layouts_with_image(rooms: int | None = None,
 
 def fetch_image(image_url: str) -> bytes:
     """Rasm baytlarini yuklab oladi (Telegramга yuborish uchun)."""
-    with _open(image_url, timeout=20) as resp:
-        return resp.read()
+    return backend_client.get_bytes(image_url, timeout=20)
 
 
 def inventory_summary() -> str:

@@ -15,11 +15,9 @@ Bu qism ham userbot.py / bot.py, ham lokal CLI (chat.py) tomonidan ishlatiladi.
 """
 from __future__ import annotations
 
-import json
 import logging
 import threading
 import time
-import urllib.request
 
 import config
 from knowledge import price_guard
@@ -27,12 +25,11 @@ from knowledge import price_guard
 log = logging.getLogger("answer")
 
 
-def _backend_open(url: str, timeout: int = 5):
-    """Backend API so'rovi — himoya tokeni (X-Bot-Token) bilan."""
-    req = urllib.request.Request(url)
-    if config.BOT_API_TOKEN:
-        req.add_header("X-Bot-Token", config.BOT_API_TOKEN)
-    return urllib.request.urlopen(req, timeout=timeout)
+def _backend_get(url: str, timeout: int = 5) -> dict:
+    """Backend API so'rovi (JSON) — himoya tokeni (X-Bot-Token) bilan. Haqiqiy
+    HTTP yoki in-process (BACKEND_IN_PROCESS=1) — backend_client.py'ga qarang."""
+    import backend_client
+    return backend_client.get_json(url, timeout=timeout)
 
 # Provayder klientlari (bir marta yaratiladi)
 _anthropic_client = None
@@ -67,8 +64,7 @@ def load_knowledge() -> str:
     text = ""
     try:
         url = f"{config.BACKEND_API_URL}/api/knowledge/"
-        with _backend_open(url) as resp:
-            payload = json.loads(resp.read().decode("utf-8")).get("data") or {}
+        payload = _backend_get(url).get("data") or {}
         text = (payload.get("text") or "").strip()
     except Exception as e:  # noqa: BLE001
         log.warning(
@@ -123,8 +119,7 @@ def _qa_entries() -> list[dict]:
         return _qa_cache[1]
     try:
         url = f"{config.BACKEND_API_URL}/api/qa/"
-        with _backend_open(url) as resp:
-            payload = json.loads(resp.read().decode("utf-8")).get("data") or {}
+        payload = _backend_get(url).get("data") or {}
         entries = payload.get("entries") or []
     except Exception as e:  # noqa: BLE001
         log.warning("Backend /api/qa/ olishda xato: %s", e)
