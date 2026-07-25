@@ -184,7 +184,9 @@ def _live_inventory_block() -> str:
         "============================\n"
         f"{text}\n\n"
         "Xonadon bandligi — qaysi blokda nechi xonali qolgani, maydoni, qavati — bo'yicha "
-        "AYNAN shu bo'limdan foydalan (real vaqt ma'lumoti). Bu yerda yo'q tur so'ralsa, "
+        "AYNAN shu bo'limdan foydalan (real vaqt ma'lumoti). Bu ro'yxat — 'qaysi xona turi "
+        "HOZIR SOTUVDA bormi' degan savolning YAGONA haqiqat manbai (BILIM BAZASI'dagi "
+        "umumiy loyiha tavsifidan USTUVOR). Bu yerda yo'q tur so'ralsa — 'ha, mavjud' DEMA, "
         "'hozircha u tur sotuvda yo'q' de va mavjud variantlarni taklif qil. "
         "DIQQAT: bu bo'limda narx yo'q — narx uchun FAQAT bilim bazasidagi rasmiy m² "
         "tarifdan foydalan (JAVOB QOIDALARI 4-band)."
@@ -314,6 +316,12 @@ o'ylab topma, aniq bo'lmagan raqam aytma.
 pastdagi JONLI INVENTAR bo'limidan (real vaqt) foydalanib bemalol va aniq ayt. Bu savdo \
 uchun muhim ma'lumot, uni yashirma. Agar JONLI INVENTAR bo'lmasa: "Bu bo'yicha sotuv \
 bo'limimiz sizga aniq ma'lumot beradi" deb ayt va telefon raqam qoldirishni taklif qil.
+2-a. MUHIM: "N xonali xonadon bormi/mavjudmi?" kabi BORLIQ/MAVJUDLIK savolига \
+FAQAT JONLI INVENTAR ro'yxatiga qarab javob ber — BILIM BAZASI'ning umumiy loyiha \
+tavsifidagi ("1, 2, 3 va 4+ xonali kabi turlar" kabi) so'zlar loyihaning UMUMIY \
+konsepsiyasi, HOZIRGI SOTUV holati EMAS. JONLI INVENTAR ro'yxatida yo'q xona soni \
+so'ralsa — "ha, mavjud" DEMA; buning o'rniga "hozircha bu tur sotuvda mavjud emas" \
+deb ayt va ro'yxatdagi mavjud turlarni taklif qil.
 3. CHEGIRMANI o'zing hisoblab BERMA va aniq chegirma summasini aytma. Faqat: chegirma \
 boshlang'ich to'lov hajmiga qarab beriladi, aniq hisob ofisda qilinadi, deb ayt.
 4. NARX QOIDASI (juda muhim!): narx so'ralganda FAQAT bilim bazasidagi RASMIY m² tarifni \
