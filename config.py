@@ -92,8 +92,9 @@ for _m in [MODEL_CHAT_GEMINI, *_gemini_chain.split(",")]:
 # --- Anthropic (Claude) ---
 # Ingest (tushunish/tartiblash) uchun arzon va tez model:
 MODEL_INGEST = "claude-haiku-4-5-20251001"
-# Bot javoblari uchun (LLM_PROVIDER="anthropic" bo'lsa):
-MODEL_CHAT = "claude-sonnet-5"
+# Bot javoblari uchun (LLM_PROVIDER="anthropic" bo'lsa yoki Gemini zaxirasi
+# sifatida) — arzon/tez model, ko'p token yemasin:
+MODEL_CHAT = "claude-haiku-4-5-20251001"
 
 # --- Uysot showroom (inventar) API — jonli xonadonlar (qaysi blok, narx, m²) ---
 UYSOT_SHOWROOM_BASE = os.getenv(
