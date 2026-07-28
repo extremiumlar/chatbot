@@ -29,3 +29,10 @@ bilim_dataset.json
 # OS
 Thumbs.db
 .DS_Store
+
+# QA test skripti (Telegram API kalitlari bor — push qilinmaydi)
+tester_login.py
+
+# QA bug hisobotlari (ichki hujjatlar)
+Nurli_diyor_*.docx
+~$*.docx

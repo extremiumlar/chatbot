@@ -113,18 +113,17 @@ def inventory_summary() -> str:
     comm = [f for f in flats if _is_commercial(f)]
 
     lines: list[str] = [
-        f"Hozir sotuvda jami {len(flats)} ta birlik ({len(apts)} kvartira, "
-        f"{len(comm)} tijorat).",
+        "Hozir sotuvda quyidagi turlar MAVJUD (DIQQAT: nechta qolgani ATAYIN ko'rsatilmagan — bu ma'lumot mijozga aytilmaydi):",
     ]
 
     if apts:
-        lines.append("\nKVARTIRALAR (xona turi bo'yicha, qaysi blokda nechta qolgani):")
+        lines.append("\nKVARTIRALAR — mavjud xona turlari (blok, maydon, qavat):")
         by_room: dict[str, list[dict]] = defaultdict(list)
         for f in apts:
             by_room[str(f["rooms"])].append(f)
         for rooms in sorted(by_room, key=lambda r: int(r) if r.isdigit() else 99):
             items = by_room[rooms]
-            lines.append(f"• {rooms} xonali — jami {len(items)} ta:")
+            lines.append(f"• {rooms} xonali — mavjud:")
             by_block: dict[str, list[dict]] = defaultdict(list)
             for f in items:
                 by_block[str(f["block"])].append(f)
@@ -133,13 +132,13 @@ def inventory_summary() -> str:
                 area = _rng([f["area"] for f in bi], lambda v: f"{v:g}")
                 floors = _rng([f["floor"] for f in bi], lambda v: f"{v:g}")
                 lines.append(
-                    f"   - {block}-blok: {len(bi)} ta | {area} m² | {floors}-qavat"
+                    f"   - {block}-blok | {area} m² | {floors}-qavat"
                 )
 
     if comm:
         area = _rng([f["area"] for f in comm], lambda v: f"{v:g}")
         lines.append(
-            f"\nTIJORAT (do'kon/noturar joy, asosan 1-qavat) — {len(comm)} ta | {area} m²"
+            f"\nTIJORAT (do'kon/noturar joy, asosan 1-qavat) — mavjud | {area} m²"
         )
 
     return "\n".join(lines)

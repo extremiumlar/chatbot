@@ -81,23 +81,23 @@ def inventory_summary() -> str:
     total_units = sum(int(l.get("available_count") or 0) for l in apts)
 
     lines: list[str] = [
-        f"Hozir sotuvda jami {total_units} ta kvartira ({len(apts)} xil tur).",
-        "\nKVARTIRALAR (xona turi bo'yicha, qaysi blokda nechta qolgani):",
+        "Hozir sotuvda quyidagi xona turlari MAVJUD (DIQQAT: nechta qolgani "
+        "ATAYIN ko'rsatilmagan — bu ma'lumot mijozga AYTILMAYDI):",
+        "\nKVARTIRALAR — mavjud turlar (blok, maydon, qavat):",
     ]
     by_room: dict[str, list[dict]] = {}
     for l in apts:
         by_room.setdefault(str(l["rooms"]), []).append(l)
     for rooms in sorted(by_room, key=lambda r: int(r) if r.isdigit() else 99):
         items = by_room[rooms]
-        n = sum(int(l.get("available_count") or 0) for l in items)
-        lines.append(f"• {rooms} xonali — jami {n} ta:")
+        lines.append(f"• {rooms} xonali — mavjud:")
         for l in sorted(items, key=lambda x: float(x.get("area") or 0)):
             blocks = ", ".join(l.get("blocks") or [])
             floors = (f"{l['min_floor']}–{l['max_floor']}" if l.get("min_floor")
                      and l.get("max_floor") and l["min_floor"] != l["max_floor"]
                      else str(l.get("min_floor") or l.get("max_floor") or "?"))
             lines.append(
-                f"   - {blocks}-blok: {l.get('available_count')} ta | "
+                f"   - {blocks}-blok | "
                 f"{float(l.get('area') or 0):g} m² | {floors}-qavat"
             )
     return "\n".join(lines)

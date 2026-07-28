@@ -31,8 +31,8 @@ Ma'lumot bu yerda bo'lmasa — bot o'ylab topmaydi, "sotuv bo'limimiz aniq aytad
 
 ## 3. Xonadonlar
 
-- Ko'p qavatli uylar — **1, 2, 3 va 4+ xonali** variantlar.
-- Xonadon maydoni: **24.1 m² dan 83.9 m² gacha**.
+- Ko'p qavatli uylar — **1, 2 va 3 xonali** variantlar.
+- Xonadon maydoni: **24.1 m² dan 81 m² gacha**.
 - Narx qavat va maydonga (kvadraturaga) qarab farqlanadi.
 
 > Eslatma: aynan qaysi blokda qanday xonadon qolganini va aniq narxini **sotuv bo'limimiz** joriy holatga ko'ra aytadi. Bot umumiy ma'lumot beradi, aniq xonadon tanlash uchun mijozni ofisga/menejerga yo'naltiradi.
