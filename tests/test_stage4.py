@@ -56,7 +56,10 @@ def test_inventory_summary() -> None:
         check("2 xonali chiqdi", "2 xonali" in text)
         check("available_count=0 (3 xonali) CHIQMADI", "3 xonali" not in text)
         check("narx YO'Q (kompaniya siyosati)", "so'm" not in text and "mln" not in text)
-        check("jami hisob to'g'ri (1+15=16)", "16 ta kvartira" in text)
+        # Sotuv siyosati (27.07): xonadonlar SONI mijozga aytilmaydi — shuning
+        # uchun xulosada na alohida, na jami son bo'lishi kerak.
+        check("xonadon SONI YO'Q (1, 15, 16 raqamlari chiqmasin)",
+              not any(f"{n} ta" in text for n in (1, 15, 16)))
     finally:
         backend.get_layouts = orig
 
