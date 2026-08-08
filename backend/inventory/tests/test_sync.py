@@ -69,7 +69,10 @@ class SyncBackoffTests(TestCase):
     """(b) ketma-ket muvaffaqiyatsizliklarda darhol qayta urinilmasin."""
 
     def test_no_immediate_retry_after_failure(self):
-        services._last_attempt = 0.0  # holatni tozalaymiz
+        # Holatni tozalaymiz. 0.0 EMAS (-inf): yangi yuklangan serverda
+        # time.monotonic() kichik (uptime) bo'lgani uchun 0.0 backoff ICHIDA
+        # sanalib, birinchi urinish ham bloklanardi (test uptime'ga bog'liq edi).
+        services._last_attempt = services._NEVER
         attempts = {"n": 0}
 
         def failing_sync(progress=None):

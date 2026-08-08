@@ -37,7 +37,13 @@ _sync_lock = threading.Lock()
 # Oxirgi (muvaffaqiyatli yoki muvaffaqiyatsiz) urinish payti (monotonic) — 4.4:
 # ketma-ket muvaffaqiyatsizliklarda har so'rovda qayta urinib, Uysot'ni "urib"
 # yubormaslik uchun.
-_last_attempt: float = 0.0
+# DIQQAT: boshlang'ich qiymat 0.0 EMAS, -inf. Linux'da time.monotonic() server
+# YOQILGANDAN beri o'tgan vaqt — ya'ni reboot'dan keyin u 0 dan boshlanadi.
+# 0.0 bo'lsa, birinchi _RETRY_BACKOFF_SEC (15 daq) davomida
+# `monotonic() - 0.0 < 900` shartи rost bo'lib, avto-sync "hech urinmasdan"
+# to'xtab turardi (server qayta yuklangach inventar 15 daqiqa yangilanmasdi).
+_NEVER = float("-inf")          # "hali umuman urinilmagan"
+_last_attempt: float = _NEVER
 _RETRY_BACKOFF_SEC = 900  # 15 daqiqa
 
 

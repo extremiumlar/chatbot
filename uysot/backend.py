@@ -78,7 +78,6 @@ def inventory_summary() -> str:
         return ""
 
     apts = [l for l in layouts if int(l.get("rooms") or 0) > 0]
-    total_units = sum(int(l.get("available_count") or 0) for l in apts)
 
     lines: list[str] = [
         "Hozir sotuvda quyidagi xona turlari MAVJUD (DIQQAT: nechta qolgani "
